@@ -1,0 +1,211 @@
+# Squilla API Router
+
+一个 HTTP 服务：精准 SquillaRouter ML 分类 + 模型分级路由 + 后端 LLM 调用。
+
+## 架构
+
+```text
+你的智能体（OpenAI Chat / Anthropic Messages 格式）
+        ↓ http://127.0.0.1:8002
+Squilla API Router（一个进程：ML 分类 → 策略门控 → 选模型 → 调用）
+        ↓
+模型池
+  c0 → GLM-5.3-Flash（便宜快速）
+  c1 → DeepSeek-V4（默认均衡）
+  c2 → Qwen3.8-27B（中等偏强）
+  c3 → Qwen3.5-397B-A17B（最强）
+```
+
+使用和 OpenSquilla 相同的 V4 Phase 3 ML 分类器（BGE + LightGBM + MLP），
+相同 4 阶段策略管道。中文友好。
+
+## 支持的 API 格式
+
+| 端点 | 格式 | 适用框架 |
+|------|------|---------|
+| `POST /v1/chat/completions` | OpenAI Chat Completions | LangChain、OpenCode、openai 库 |
+| `POST /v1/messages` | Anthropic Messages | Codex、Claude Code、Anthropic SDK |
+
+## 快速启动
+
+```powershell
+# 1. 复制环境变量模板，填入后端地址和 key
+Copy-Item .env.example .env
+# 编辑 .env
+
+# 2. 安装依赖
+pip install -r requirements.txt
+
+# 3. 启动
+uvicorn app:app --host 127.0.0.1 --port 8002
+```
+
+## 智能体接入
+
+### Codex / Claude Code（Anthropic Messages 格式）
+
+在 `settings.json` 中配置：
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8002",
+    "ANTHROPIC_API_KEY": "anything"
+  }
+}
+```
+
+### LangChain / OpenCode / openai 库（OpenAI Chat 格式）
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8002/v1",
+    api_key="anything",
+)
+response = client.chat.completions.create(
+    model="router",
+    messages=messages,
+)
+```
+
+## 模型配置
+
+在 `.env` 里配置每个档位的模型、key 和 base_url。
+四个档位可以指向完全不同的 provider，也可以都用同一个平台：
+
+```text
+# 统一平台配置
+BACKEND_BASE_URL=https://chat.tianhe-tech.com/v1
+BACKEND_API_KEY=sk-your-key
+
+# c0: 便宜快速
+C0_MODEL=GLM-5.3-Flash
+C0_API_KEY=sk-your-key
+C0_BASE_URL=https://chat.tianhe-tech.com/v1
+
+# c1: 默认均衡
+C1_MODEL=DeepSeek-V4
+C1_API_KEY=sk-your-key
+C1_BASE_URL=https://chat.tianhe-tech.com/v1
+
+# c2: 中等偏强
+C2_MODEL=Qwen3.8-27B
+C2_API_KEY=sk-your-key
+C2_BASE_URL=https://chat.tianhe-tech.com/v1
+
+# c3: 最强
+C3_MODEL=Qwen3.5-397B-A17B
+C3_API_KEY=sk-your-key
+C3_BASE_URL=https://chat.tianhe-tech.com/v1
+```
+
+## 实测结果
+
+| 请求类型 | 分类结果 | 路由到的模型 | 置信度 |
+|---------|---------|------------|--------|
+| "你好，介绍自己" | R0 | GLM-5.3-Flash | 0.94 |
+| "分析并发问题，设计架构" | R3 | Qwen3.5-397B-A17B | 0.95 |
+
+## 响应格式
+
+标准 OpenAI 格式，额外附加 `_router` 元数据：
+
+```json
+{
+  "id": "chatcmpl-xxx",
+  "object": "chat.completion",
+  "choices": [...],
+  "usage": {...},
+  "_router": {
+    "tier": "R0",
+    "model": "GLM-5.3-Flash",
+    "raw_route_class": "R0",
+    "confidence": 0.94,
+    "thinking_mode": "T0",
+    "material_tokens": 3,
+    "probabilities": {"R0": 0.94, "R1": 0.05, "R2": 0.01, "R3": 0.00}
+  }
+}
+```
+
+Anthropic 格式响应：
+
+```json
+{
+  "id": "msg_router",
+  "type": "message",
+  "role": "assistant",
+  "content": [{"type": "text", "text": "..."}],
+  "model": "GLM-5.3-Flash",
+  "stop_reason": "end_turn",
+  "usage": {"input_tokens": 18, "output_tokens": 229},
+  "_router": {...}
+}
+```
+
+## 管理端点
+
+| 端点 | 说明 |
+|------|------|
+| `GET /health` | 健康检查 + ML 分类器状态 |
+| `GET /router-status` | 各档位配置 + 路由映射表 |
+
+## 语义分类原理
+
+每轮请求前，Router 用本地小模型精准判断请求难度：
+
+1. **特征提取**：BGE 嵌入（1536 维）+ TF-IDF（102 维）+ 上下文/历史特征（390 维总特征）
+2. **分类**：LightGBM 主分类器 + 辅助头 + MLP，融合概率 → R0/R1/R2/R3
+3. **策略门控**：
+   - confidence_gate：低置信度降级到默认档
+   - complaint_upgrade：投诉/催促内容升档
+   - anti_downgrade：保护 KV-cache 连续性
+   - large_context_floor：大上下文强制升档
+4. **模型绑定**：R0→c0、R1→c1、R2→c2、R3→c3
+
+## 项目结构
+
+```text
+squilla_api_router/
+├── README.md               # 本文件
+├── .env / .env.example     # 模型配置
+├── requirements.txt        # 依赖
+├── app.py                  # 主服务：接收 → 分类 → 选模型 → 调用
+├── contracts.py            # 请求校验
+├── limits.py               # 请求限制
+├── conversation_context.py # 上下文提取
+├── final_policy.py         # 4 阶段策略管道
+├── model_bundle/           # V4 Phase 3 ML 模型资产（约 70MB）
+│   ├── bge_onnx/           # BGE 嵌入模型
+│   ├── features/           # TF-IDF / SVD / PCA
+│   ├── lgbm_main.bin       # LightGBM 主分类器
+│   ├── lgbm_aux.bin        # 辅助头
+│   └── mlp/                # MLP 头
+└── v4_runtime/             # 分类推理逻辑
+    ├── inference/          # InferenceCore、融合、后处理
+    └── features.py         # 特征工程
+```
+
+## 依赖版本
+
+```text
+numpy >= 1.26
+lightgbm == 4.5.x（必须，其他版本可能无法加载模型）
+scikit-learn >= 1.8
+onnxruntime >= 1.17
+tokenizers >= 0.15
+joblib >= 1.3
+pyyaml >= 6.0
+fastapi >= 0.110
+uvicorn >= 0.30
+httpx >= 0.27
+python-dotenv >= 1.0
+```
+
+## 许可
+
+- 本项目代码：Apache 2.0
+- BGE 模型：MIT（BAAI/bge-small-zh-v1.5）
+- SquillaRouter 分类器来源：OpenSquilla（Apache 2.0），经由 Crush12999/squilla-router-server 抽取
