@@ -101,6 +101,66 @@ C3_API_KEY=sk-your-key
 C3_BASE_URL=https://chat.tianhe-tech.com/v1
 ```
 
+## 多模态图片/视频路由
+
+当请求包含图片或视频时，Router 会**先按配置筛选支持图片/视频的档位**，
+再按文本 tier 方式（V4 ML 分类提示词）在可用档位内路由。
+
+支持 OpenAI `image_url` 和 Anthropic `image`/`video` 格式。
+
+### 配置
+
+每个档位在 `.env` 里用 `SUPPORTS_IMAGE` / `SUPPORTS_VIDEO` 标注多模态能力：
+
+```text
+# c0: 支持图片
+C0_MODEL=Qwen3.8-27B
+C0_SUPPORTS_IMAGE=1
+C0_SUPPORTS_VIDEO=1
+
+# c2: 纯文本，不支持图片（图片请求会排除它）
+C2_MODEL=DeepSeek-V4
+C2_SUPPORTS_IMAGE=0
+C2_SUPPORTS_VIDEO=0
+
+# c3: 支持图片
+C3_MODEL=Qwen3.5-397B-A17B
+C3_SUPPORTS_IMAGE=1
+C3_SUPPORTS_VIDEO=1
+```
+
+### 路由逻辑
+
+```text
+请求包含图片/视频
+  → 筛选 SUPPORTS_IMAGE=1 的档位（如 c0/c1/c3）
+  → 用 V4 ML 分类器跑提示词文本
+  → R0→c0, R1→c1, R2/R3→c3（只在多模态档位内）
+纯文本请求
+  → 正常走 R0-R3 → c0-c3 全档位
+```
+
+### 实测
+
+| 图片请求提示词 | 路由 tier | 模型 |
+|---------------|----------|------|
+| "这是什么"（简单） | c0 | Qwen3.8-27B |
+| "分析架构+部署代码"（复杂） | c3 | Qwen3.5-397B-A17B |
+
+### 响应标注
+
+```json
+{
+  "_router": {
+    "tier": "c0",
+    "model": "Qwen3.8-27B",
+    "vision": true,
+    "video": false,
+    "source": "vision_route"
+  }
+}
+```
+
 ## 实测结果
 
 | 请求类型 | 分类结果 | 路由到的模型 | 置信度 |

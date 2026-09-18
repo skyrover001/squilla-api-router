@@ -62,48 +62,45 @@ BUNDLE_DIR = Path(__file__).resolve().parent / "model_bundle"
 
 
 
+# Vision-capable model (routed to when request contains images)
+VISION_MODEL = os.environ.get("VISION_MODEL", "GLM-5.3-Flash")
+VISION_BASE_URL = os.environ.get("VISION_BASE_URL", os.environ.get("BACKEND_BASE_URL", ""))
+VISION_API_KEY = os.environ.get("VISION_API_KEY", os.environ.get("BACKEND_API_KEY", ""))
+
 # Backend model configs per tier.
 
 TIERS: dict[str, dict[str, str]] = {
 
     "c0": {
-
         "model": os.environ.get("C0_MODEL", ""),
-
         "api_key": os.environ.get("C0_API_KEY", ""),
-
         "base_url": os.environ.get("C0_BASE_URL", ""),
-
+        "supports_image": os.environ.get("C0_SUPPORTS_IMAGE", "0") == "1",
+        "supports_video": os.environ.get("C0_SUPPORTS_VIDEO", "0") == "1",
     },
 
     "c1": {
-
         "model": os.environ.get("C1_MODEL", ""),
-
         "api_key": os.environ.get("C1_API_KEY", ""),
-
         "base_url": os.environ.get("C1_BASE_URL", ""),
-
+        "supports_image": os.environ.get("C1_SUPPORTS_IMAGE", "0") == "1",
+        "supports_video": os.environ.get("C1_SUPPORTS_VIDEO", "0") == "1",
     },
 
     "c2": {
-
         "model": os.environ.get("C2_MODEL", ""),
-
         "api_key": os.environ.get("C2_API_KEY", ""),
-
         "base_url": os.environ.get("C2_BASE_URL", ""),
-
+        "supports_image": os.environ.get("C2_SUPPORTS_IMAGE", "0") == "1",
+        "supports_video": os.environ.get("C2_SUPPORTS_VIDEO", "0") == "1",
     },
 
     "c3": {
-
         "model": os.environ.get("C3_MODEL", "") or os.environ.get("C2_MODEL", ""),
-
         "api_key": os.environ.get("C3_API_KEY", "") or os.environ.get("C2_API_KEY", ""),
-
         "base_url": os.environ.get("C3_BASE_URL", "") or os.environ.get("C2_BASE_URL", ""),
-
+        "supports_image": os.environ.get("C3_SUPPORTS_IMAGE", "0") == "1",
+        "supports_video": os.environ.get("C3_SUPPORTS_VIDEO", "0") == "1",
     },
 
 }
@@ -202,9 +199,113 @@ except Exception:
 
 
 
-def _classify(user_text: str, messages: list[dict[str, Any]], tools: list | None) -> dict:
+def _detect_image_content(messages: list[dict[str, Any]]) -> bool:
+    """Detect if request contains images (OpenAI image_url or Anthropic image format)."""
+    for msg in messages:
+        content = msg.get("content", "")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") in ("image_url", "image", "document"):
+                return True
+    return False
+
+
+def _detect_video_content(messages: list[dict[str, Any]]) -> bool:
+    """Detect if request contains video content."""
+    for msg in messages:
+        content = msg.get("content", "")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if isinstance(part, dict) and part.get("type") in ("video", "video_url"):
+                return True
+    return False
+
+
+def _vision_valid_tiers() -> list[str]:
+    """Return tiers whose model supports image (and video if requested)."""
+    return [name for name, cfg in TIERS.items() if cfg.get("supports_image")]
+
+
+async def _call_backend(
+    body: dict,
+    backend: dict[str, str],
+    route_class: str,
+    *,
+    vision: bool = False,
+    video: bool = False,
+):
+    """Call the backend model and return the response."""
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {backend['api_key']}",
+    }
+
+    is_stream = body.get("stream", False)
+
+    if is_stream:
+        async def _stream():
+            async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
+                async with client.stream(
+                    "POST",
+                    f"{backend['base_url']}/chat/completions",
+                    json=body,
+                    headers=headers,
+                ) as resp:
+                    async for chunk in resp.aiter_bytes():
+                        yield chunk
+
+        return StreamingResponse(
+            _stream(),
+            media_type="text/event-stream",
+            headers={
+                "X-Router-Tier": route_class,
+                "X-Router-Model": backend["model"],
+            },
+        )
+
+    try:
+        resp = httpx.post(
+            f"{backend['base_url']}/chat/completions",
+            json=body,
+            headers=headers,
+            timeout=120.0,
+            trust_env=False,
+        )
+        result = resp.json()
+        status = resp.status_code
+    except Exception as exc:
+        result = {"error": {"message": str(exc)}}
+        status = 502
+
+    result["_router"] = {
+        "tier": route_class,
+        "model": backend["model"],
+        "vision": vision,
+        "video": video,
+        "source": "vision_route" if vision else "ml_route",
+    }
+
+    return JSONResponse(content=result, status_code=status)
+
+
+def _classify(user_text: str, messages: list[dict[str, Any]], tools: list | None, valid_tiers: list[str] | None = None) -> dict:
 
     """Run the full SquillaRouter pipeline: ML classify + 4-gate policy."""
+
+    # When valid_tiers is provided (vision routing), build a remap from
+    # R0-R3 to the nearest vision-capable tier.
+    tier_remap = None
+    if valid_tiers is not None:
+        tier_remap = {
+            "R0": valid_tiers[0],
+            "R1": valid_tiers[min(1, len(valid_tiers)-1)],
+            "R2": valid_tiers[min(2, len(valid_tiers)-1)],
+            "R3": valid_tiers[-1],
+        }
 
     if _core is None or _request_type is None:
 
@@ -300,17 +401,7 @@ def _classify(user_text: str, messages: list[dict[str, Any]], tools: list | None
 
         material_tokens = material_chars // 4
 
-        has_image = any(
-
-            isinstance(m.get("content"), list)
-
-            and any(isinstance(p, dict) and p.get("type") == "image_url" for p in m["content"])
-
-            for m in messages
-
-            if m.get("role") == "user"
-
-        )
+        has_image = _detect_image_content(messages)
 
 
 
@@ -380,9 +471,10 @@ def _classify(user_text: str, messages: list[dict[str, Any]], tools: list | None
 
 
 
+        resolved_class = tier_remap.get(final_route_class, final_route_class) if tier_remap else final_route_class
         return {
 
-            "route_class": final_route_class,
+            "route_class": resolved_class,
 
             "raw_route_class": route_class,
 
@@ -402,9 +494,10 @@ def _classify(user_text: str, messages: list[dict[str, Any]], tools: list | None
 
     # Fallback path (no ML core)
 
+    resolved_class = tier_remap.get(route_class, route_class) if tier_remap else route_class
     return {
 
-        "route_class": route_class,
+        "route_class": resolved_class,
 
         "raw_route_class": route_class,
 
@@ -428,7 +521,10 @@ def _get_backend(route_class: str) -> dict[str, str]:
 
     """Return the backend config for a route_class."""
 
-    tier = ROUTE_CLASS_TO_TIER.get(route_class, "c1")
+    if route_class in TIERS:
+        tier = route_class
+    else:
+        tier = ROUTE_CLASS_TO_TIER.get(route_class, "c1")
 
     cfg = TIERS.get(tier)
 
@@ -465,6 +561,31 @@ async def chat_completions(request: Request):
     user_text = _extract_user_text(messages)
 
 
+
+
+    # Vision/Video routing: filter tiers that support the content type,
+    # then classify the text prompt and route within the vision-capable tiers.
+    if _detect_image_content(messages) or _detect_video_content(messages):
+        is_video = _detect_video_content(messages)
+        valid_tiers = _vision_valid_tiers()
+        if not valid_tiers:
+            backend = {
+                "model": VISION_MODEL,
+                "api_key": VISION_API_KEY,
+                "base_url": VISION_BASE_URL,
+            }
+            body["model"] = VISION_MODEL
+            return await _call_backend(body, backend, "vision", vision=True)
+
+        # Classify the text prompt, but only allow vision-capable tiers.
+        route_info = _classify(user_text, messages, tools, valid_tiers=valid_tiers)
+        route_class = route_info["route_class"]
+        backend = _get_backend(route_class)
+        body["model"] = backend["model"]
+        return await _call_backend(
+            body, backend, route_class,
+            vision=True, video=is_video,
+        )
 
     route_info = _classify(user_text, messages, tools)
 
@@ -588,6 +709,64 @@ async def chat_completions(request: Request):
 
 
 
+async def _call_backend_anthropic(
+    openai_body: dict,
+    backend: dict[str, str],
+    max_tokens: int,
+    *,
+    vision: bool = False,
+    video: bool = False,
+):
+    """Call backend with OpenAI body, convert response back to Anthropic format."""
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {backend['api_key']}",
+    }
+    try:
+        resp = httpx.post(
+            f"{backend['base_url']}/chat/completions",
+            json=openai_body,
+            headers=headers,
+            timeout=120.0,
+            trust_env=False,
+        )
+        result = resp.json()
+        status = resp.status_code
+    except Exception as exc:
+        return JSONResponse(
+            content={"type": "error", "error": {"type": "api_error", "message": str(exc)}},
+            status_code=502,
+        )
+
+    choices = result.get("choices", [])
+    msg = choices[0].get("message", {}) if choices else {}
+    content_text = (msg.get("content") or "") or (msg.get("reasoning") or "")
+    usage = result.get("usage", {})
+    finish = choices[0].get("finish_reason", "end_turn") if choices else "end_turn"
+
+    anthropic_response = {
+        "id": result.get("id", "msg_router"),
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": content_text}],
+        "model": backend["model"],
+        "stop_reason": finish,
+        "stop_sequence": None,
+        "usage": {
+            "input_tokens": usage.get("prompt_tokens", 0),
+            "output_tokens": usage.get("completion_tokens", 0),
+        },
+        "_router": {
+            "tier": openai_body.get("model", ""),
+            "model": backend["model"],
+            "vision": vision,
+            "video": video,
+            "confidence": None,
+        },
+    }
+    return JSONResponse(content=anthropic_response, status_code=status)
+
+
 @app.post("/v1/messages")
 
 async def anthropic_messages(request: Request):
@@ -631,22 +810,46 @@ async def anthropic_messages(request: Request):
             openai_messages.append({"role": role, "content": content})
 
         elif isinstance(content, list):
-
-            parts = []
-
+            # Convert Anthropic blocks, PRESERVING image/video blocks so the
+            # vision route can forward them to a multimodal model.
+            text_parts = []
+            preserved_content = []
             for block in content:
-
-                if isinstance(block, dict):
-
-                    if block.get("type") == "text":
-
-                        parts.append(block.get("text", ""))
-
-                    elif block.get("type") == "tool_result":
-
-                        parts.append(str(block.get("content", "")))
-
-            openai_messages.append({"role": role, "content": " ".join(parts)})
+                if not isinstance(block, dict):
+                    continue
+                btype = block.get("type")
+                if btype == "text":
+                    text_parts.append(block.get("text", ""))
+                elif btype == "tool_result":
+                    text_parts.append(str(block.get("content", "")))
+                elif btype in ("image", "image_url", "video", "video_url"):
+                    # Keep the block for multimodal forwarding.
+                    if btype in ("image", "image_url") and "source" in block:
+                        # Anthropic image block -> OpenAI-style image_url if possible
+                        src = block.get("source") or {}
+                        b64 = src.get("data")
+                        media_type = src.get("media_type", "image/png")
+                        if b64:
+                            preserved_content.append({
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{media_type};base64,{b64}"},
+                            })
+                        elif block.get("url"):
+                            preserved_content.append({
+                                "type": "image_url",
+                                "image_url": {"url": block["url"]},
+                            })
+                        else:
+                            preserved_content.append(block)
+                    else:
+                        preserved_content.append(block)
+            # Combine text + preserved multimodal blocks into a single content array
+            combined = []
+            if text_parts:
+                combined.append({"type": "text", "text": " ".join(text_parts)})
+            combined.extend(preserved_content)
+            if combined:
+                openai_messages.append({"role": role, "content": combined})
 
 
 
@@ -661,6 +864,27 @@ async def anthropic_messages(request: Request):
             break
 
 
+
+    # Vision/Video routing for Anthropic format (image blocks preserved above)
+    if _detect_image_content(openai_messages) or _detect_video_content(openai_messages):
+        is_video = _detect_video_content(openai_messages)
+        valid_tiers = _vision_valid_tiers()
+        if not valid_tiers:
+            backend = {
+                "model": VISION_MODEL,
+                "api_key": VISION_API_KEY,
+                "base_url": VISION_BASE_URL,
+            }
+        else:
+            v_route = _classify(user_text, openai_messages, body.get("tools"), valid_tiers=valid_tiers)
+            v_class = v_route["route_class"]
+            backend = _get_backend(v_class)
+        openai_body = {
+            "model": backend["model"],
+            "messages": openai_messages,
+            "max_tokens": max_tokens,
+        }
+        return await _call_backend_anthropic(openai_body, backend, max_tokens, vision=True, video=is_video)
 
     route_info = _classify(user_text, openai_messages, body.get("tools"))
 
