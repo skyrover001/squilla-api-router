@@ -674,9 +674,6 @@ async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)
 
 
 
-
-    # Vision/Video routing: filter tiers that support the content type,
-    # then classify the text prompt and route within the vision-capable tiers.
     if _detect_image_content(messages) or _detect_video_content(messages):
         is_video = _detect_video_content(messages)
         valid_tiers = _vision_valid_tiers()
