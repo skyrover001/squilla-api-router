@@ -301,6 +301,7 @@ async def _call_backend(
     video: bool = False,
     fallback_backends: list[dict[str, str]] | None = None,
     fallback_route_classes: list[str] | None = None,
+    endpoint_path: str = "/chat/completions",
 ):
     """Call the backend model with failover to fallback backends on failure."""
     is_stream = body.get("stream", False)
@@ -323,7 +324,7 @@ async def _call_backend(
                     async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
                         async with client.stream(
                             "POST",
-                            f"{cand_backend['base_url']}/chat/completions",
+                            f"{cand_backend['base_url']}{endpoint_path}",
                             json=body,
                             headers=headers,
                         ) as resp:
@@ -342,7 +343,7 @@ async def _call_backend(
                 )
 
             resp = httpx.post(
-                f"{cand_backend['base_url']}/chat/completions",
+                f"{cand_backend['base_url']}{endpoint_path}",
                 json=body,
                 headers=headers,
                 timeout=120.0,
@@ -659,64 +660,45 @@ def _get_backend(route_class: str) -> dict[str, str]:
 
 
 @app.post("/v1/chat/completions")
-
 async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)):
-
-    """Classify, route, call the backend model, return OpenAI response."""
-
+    """OpenAI Chat Completions: classify, pick model, replace model, forward raw to /chat/completions."""
     body = await request.json()
-
     messages = body.get("messages", [])
-
     tools = body.get("tools", None)
-
     user_text = _extract_user_text(messages)
+    is_vision = _detect_image_content(messages) or _detect_video_content(messages)
+    has_video = _detect_video_content(messages)
 
-
-
-    if _detect_image_content(messages) or _detect_video_content(messages):
-        is_video = _detect_video_content(messages)
+    if is_vision:
         valid_tiers = _vision_valid_tiers()
         if not valid_tiers:
-            backend = {
-                "model": VISION_MODEL,
-                "api_key": VISION_API_KEY,
-                "base_url": VISION_BASE_URL,
-            }
+            backend = {"model": VISION_MODEL, "api_key": VISION_API_KEY, "base_url": VISION_BASE_URL}
             body["model"] = VISION_MODEL
-            return await _call_backend(body, backend, "vision", vision=True)
-
-        # Classify the text prompt, but only allow vision-capable tiers.
+            return await _call_backend(body, backend, "vision", vision=True, video=has_video, endpoint_path="/chat/completions")
         route_info = _classify(user_text, messages, tools, valid_tiers=valid_tiers)
         route_class = route_info["route_class"]
         backend = _get_backend(route_class)
         body["model"] = backend["model"]
         chain = _fallback_chain(route_class, route_info, vision=True)
         return await _call_backend(
-            body, backend, route_class,
-            vision=True, video=is_video,
+            body, backend, route_class, vision=True, video=has_video,
             fallback_backends=[b for b, _ in chain[1:]],
             fallback_route_classes=[r for _, r in chain[1:]],
+            endpoint_path="/chat/completions",
         )
 
     route_info = _classify(user_text, messages, tools)
-
     route_class = route_info["route_class"]
-
     backend = _get_backend(route_class)
-
-
-
     body["model"] = backend["model"]
-
     chain = _fallback_chain(route_class, route_info)
-    # Call with failover: selected backend first, then fallbacks in tier order.
     resp = await _call_backend(
         body, backend, route_class,
         fallback_backends=[b for b, _ in chain[1:]],
         fallback_route_classes=[r for _, r in chain[1:]],
+        endpoint_path="/chat/completions",
     )
-    # Merge classification metadata into the response _router.
+    # Merge classification metadata
     if hasattr(resp, "body"):
         import json as _json
         try:
@@ -737,300 +719,117 @@ async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)
     return resp
 
 
+@app.post("/v1/responses")
+async def responses_endpoint(request: Request, _auth: bool = Depends(_verify_auth)):
+    """OpenAI Responses API: classify, pick model, replace model, forward raw to /responses."""
+    body = await request.json()
+    # Extract user text from Responses 'input'
+    user_text = ""
+    inp = body.get("input")
+    if isinstance(inp, str):
+        user_text = inp
+    elif isinstance(inp, list):
+        parts = []
+        for item in inp:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                c = item.get("content", "")
+                if isinstance(c, str):
+                    parts.append(c)
+                elif isinstance(c, list):
+                    for p in c:
+                        if isinstance(p, dict) and p.get("type") == "input_text":
+                            parts.append(p.get("text", ""))
+        user_text = " ".join(p for p in parts if p)
 
+    # Detect image in Responses format
+    is_vision = False
+    has_video = False
+    if isinstance(inp, list):
+        for item in inp:
+            if isinstance(item, dict):
+                c = item.get("content")
+                if isinstance(c, list):
+                    for p in c:
+                        if isinstance(p, dict) and p.get("type") in ("input_image", "image_url", "image", "input_video", "video", "video_url"):
+                            is_vision = True
+                            if p.get("type") in ("input_video", "video", "video_url"):
+                                has_video = True
+    # For classification, feed a pseudo message so V4 classifier sees the user text
+    msgs_for_classify = [{"role": "user", "content": user_text}] if user_text else []
+    tools = body.get("tools", None) or body.get("tool", None)
 
-
-
-
-async def _call_backend_anthropic(
-    openai_body: dict,
-    backend: dict[str, str],
-    max_tokens: int,
-    *,
-    vision: bool = False,
-    video: bool = False,
-):
-    """Call backend with OpenAI body, convert response back to Anthropic format."""
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {backend['api_key']}",
-    }
-    try:
-        resp = httpx.post(
-            f"{backend['base_url']}/chat/completions",
-            json=openai_body,
-            headers=headers,
-            timeout=120.0,
-            trust_env=False,
+    if is_vision:
+        valid_tiers = _vision_valid_tiers()
+        if not valid_tiers:
+            backend = {"model": VISION_MODEL, "api_key": VISION_API_KEY, "base_url": VISION_BASE_URL}
+            body["model"] = VISION_MODEL
+            return await _call_backend(body, backend, "vision", vision=True, video=has_video, endpoint_path="/responses")
+        route_info = _classify(user_text, msgs_for_classify, tools, valid_tiers=valid_tiers)
+        route_class = route_info["route_class"]
+        backend = _get_backend(route_class)
+        body["model"] = backend["model"]
+        chain = _fallback_chain(route_class, route_info, vision=True)
+        return await _call_backend(
+            body, backend, route_class, vision=True, video=has_video,
+            fallback_backends=[b for b, _ in chain[1:]],
+            fallback_route_classes=[r for _, r in chain[1:]],
+            endpoint_path="/responses",
         )
-        result = resp.json()
-        status = resp.status_code
-    except Exception as exc:
-        return JSONResponse(
-            content={"type": "error", "error": {"type": "api_error", "message": str(exc)}},
-            status_code=502,
-        )
 
-    choices = result.get("choices", [])
-    msg = choices[0].get("message", {}) if choices else {}
-    content_text = (msg.get("content") or "") or (msg.get("reasoning") or "")
-    usage = result.get("usage", {})
-    finish = choices[0].get("finish_reason", "end_turn") if choices else "end_turn"
-
-    anthropic_response = {
-        "id": result.get("id", "msg_router"),
-        "type": "message",
-        "role": "assistant",
-        "content": [{"type": "text", "text": content_text}],
-        "model": backend["model"],
-        "stop_reason": finish,
-        "stop_sequence": None,
-        "usage": {
-            "input_tokens": usage.get("prompt_tokens", 0),
-            "output_tokens": usage.get("completion_tokens", 0),
-        },
-        "_router": {
-            "tier": openai_body.get("model", ""),
-            "model": backend["model"],
-            "vision": vision,
-            "video": video,
-            "confidence": None,
-        },
-    }
-    return JSONResponse(content=anthropic_response, status_code=status)
+    route_info = _classify(user_text, msgs_for_classify, tools)
+    route_class = route_info["route_class"]
+    backend = _get_backend(route_class)
+    body["model"] = backend["model"]
+    chain = _fallback_chain(route_class, route_info)
+    return await _call_backend(
+        body, backend, route_class,
+        fallback_backends=[b for b, _ in chain[1:]],
+        fallback_route_classes=[r for _, r in chain[1:]],
+        endpoint_path="/responses",
+    )
 
 
 @app.post("/v1/messages")
-
 async def anthropic_messages(request: Request, _auth: bool = Depends(_verify_auth)):
-
-    """Anthropic Messages format endpoint for Codex / Claude Code / Anthropic SDK."""
-
+    """Anthropic Messages: classify, pick model, replace model, forward raw to /messages."""
     body = await request.json()
+    messages = body.get("messages", [])
+    tools = body.get("tools", None)
+    user_text = _extract_user_text(messages)
+    is_vision = _detect_image_content(messages) or _detect_video_content(messages)
+    has_video = _detect_video_content(messages)
 
-    anthropic_msgs = body.get("messages", [])
-
-    system_prompt = body.get("system", "")
-
-    max_tokens = body.get("max_tokens", 4096)
-
-
-
-    openai_messages = []
-
-    if system_prompt:
-
-        if isinstance(system_prompt, str):
-
-            openai_messages.append({"role": "system", "content": system_prompt})
-
-        elif isinstance(system_prompt, list):
-
-            text = " ".join(b.get("text", "") for b in system_prompt if isinstance(b, dict) and b.get("type") == "text")
-
-            openai_messages.append({"role": "system", "content": text})
-
-
-
-    for msg in anthropic_msgs:
-
-        role = msg.get("role", "user")
-
-        content = msg.get("content", "")
-
-        if isinstance(content, str):
-
-            openai_messages.append({"role": role, "content": content})
-
-        elif isinstance(content, list):
-            # Convert Anthropic blocks, PRESERVING image/video blocks so the
-            # vision route can forward them to a multimodal model.
-            text_parts = []
-            preserved_content = []
-            for block in content:
-                if not isinstance(block, dict):
-                    continue
-                btype = block.get("type")
-                if btype == "text":
-                    text_parts.append(block.get("text", ""))
-                elif btype == "tool_result":
-                    text_parts.append(str(block.get("content", "")))
-                elif btype in ("image", "image_url", "video", "video_url"):
-                    # Keep the block for multimodal forwarding.
-                    if btype in ("image", "image_url") and "source" in block:
-                        # Anthropic image block -> OpenAI-style image_url if possible
-                        src = block.get("source") or {}
-                        b64 = src.get("data")
-                        media_type = src.get("media_type", "image/png")
-                        if b64:
-                            preserved_content.append({
-                                "type": "image_url",
-                                "image_url": {"url": f"data:{media_type};base64,{b64}"},
-                            })
-                        elif block.get("url"):
-                            preserved_content.append({
-                                "type": "image_url",
-                                "image_url": {"url": block["url"]},
-                            })
-                        else:
-                            preserved_content.append(block)
-                    else:
-                        preserved_content.append(block)
-            # Combine text + preserved multimodal blocks into a single content array
-            combined = []
-            if text_parts:
-                combined.append({"type": "text", "text": " ".join(text_parts)})
-            combined.extend(preserved_content)
-            if combined:
-                openai_messages.append({"role": role, "content": combined})
-
-
-
-    user_text = ""
-
-    for msg in reversed(openai_messages):
-
-        if msg.get("role") == "user":
-
-            user_text = msg.get("content", "")
-
-            break
-
-
-
-    # Vision/Video routing for Anthropic format (image blocks preserved above)
-    if _detect_image_content(openai_messages) or _detect_video_content(openai_messages):
-        is_video = _detect_video_content(openai_messages)
+    if is_vision:
         valid_tiers = _vision_valid_tiers()
         if not valid_tiers:
-            backend = {
-                "model": VISION_MODEL,
-                "api_key": VISION_API_KEY,
-                "base_url": VISION_BASE_URL,
-            }
-        else:
-            v_route = _classify(user_text, openai_messages, body.get("tools"), valid_tiers=valid_tiers)
-            v_class = v_route["route_class"]
-            backend = _get_backend(v_class)
-        openai_body = {
-            "model": backend["model"],
-            "messages": openai_messages,
-            "max_tokens": max_tokens,
-        }
-        return await _call_backend_anthropic(openai_body, backend, max_tokens, vision=True, video=is_video)
+            backend = {"model": VISION_MODEL, "api_key": VISION_API_KEY, "base_url": VISION_BASE_URL}
+            body["model"] = VISION_MODEL
+            return await _call_backend(body, backend, "vision", vision=True, video=has_video, endpoint_path="/messages")
+        route_info = _classify(user_text, messages, tools, valid_tiers=valid_tiers)
+        route_class = route_info["route_class"]
+        backend = _get_backend(route_class)
+        body["model"] = backend["model"]
+        chain = _fallback_chain(route_class, route_info, vision=True)
+        return await _call_backend(
+            body, backend, route_class, vision=True, video=has_video,
+            fallback_backends=[b for b, _ in chain[1:]],
+            fallback_route_classes=[r for _, r in chain[1:]],
+            endpoint_path="/messages",
+        )
 
-    route_info = _classify(user_text, openai_messages, body.get("tools"))
-
+    route_info = _classify(user_text, messages, tools)
     route_class = route_info["route_class"]
-
     backend = _get_backend(route_class)
-
-
-
-    openai_body = {
-
-        "model": backend["model"],
-
-        "messages": openai_messages,
-
-        "max_tokens": max_tokens,
-
-    }
-
-
-
-    headers = {
-
-        "Content-Type": "application/json",
-
-        "Authorization": f"Bearer {backend['api_key']}",
-
-    }
-
-
-
-    try:
-
-        resp = httpx.post(
-
-            f"{backend['base_url']}/chat/completions",
-
-            json=openai_body,
-
-            headers=headers,
-
-            timeout=120.0, trust_env=False,
-
-        )
-
-        result = resp.json()
-
-        status = resp.status_code
-
-    except Exception as exc:
-
-        return JSONResponse(
-
-            content={"type": "error", "error": {"type": "api_error", "message": str(exc)}},
-
-            status_code=502,
-
-        )
-
-
-
-    choices = result.get("choices", [])
-
-    content_text = choices[0].get("message", {}).get("content", "") if choices else ""
-
-    usage = result.get("usage", {})
-
-
-
-    anthropic_response = {
-
-        "id": result.get("id", "msg_router"),
-
-        "type": "message",
-
-        "role": "assistant",
-
-        "content": [{"type": "text", "text": content_text}],
-
-        "model": backend["model"],
-
-        "stop_reason": choices[0].get("finish_reason", "end_turn") if choices else "end_turn",
-
-        "stop_sequence": None,
-
-        "usage": {
-
-            "input_tokens": usage.get("prompt_tokens", 0),
-
-            "output_tokens": usage.get("completion_tokens", 0),
-
-        },
-
-        "_router": {
-
-            "tier": route_class,
-
-            "model": backend["model"],
-
-            "confidence": route_info.get("confidence"),
-
-            "thinking_mode": route_info.get("thinking_mode"),
-
-            "probabilities": route_info.get("probabilities"),
-
-        },
-
-    }
-
-
-
-    return JSONResponse(content=anthropic_response, status_code=status)
-
+    body["model"] = backend["model"]
+    chain = _fallback_chain(route_class, route_info)
+    return await _call_backend(
+        body, backend, route_class,
+        fallback_backends=[b for b, _ in chain[1:]],
+        fallback_route_classes=[r for _, r in chain[1:]],
+        endpoint_path="/messages",
+    )
 
 
 @app.get("/health")

@@ -24,7 +24,10 @@ Squilla API Router（一个进程：ML 分类 → 策略门控 → 选模型 →
 | 端点 | 格式 | 适用框架 |
 |------|------|---------|
 | `POST /v1/chat/completions` | OpenAI Chat Completions | LangChain、OpenCode、openai 库 |
+| `POST /v1/responses` | OpenAI Responses API | OpenAI Responses SDK |
 | `POST /v1/messages` | Anthropic Messages | Codex、Claude Code、Anthropic SDK |
+
+三种格式均支持流式（SSE）。Router 只做：鉴权 → 图片/视频检测 → V4 分类选模型 → 替换 `model` 字段 → **原样转发**到后端对应的端点（`/chat/completions`、`/responses`、`/messages`），不转换格式。客户端用什么格式进来，收到的就是什么格式返回。后端需支持对应端点（starfire / tianhe 均支持三种格式）。
 
 ## 快速启动
 
