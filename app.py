@@ -34,7 +34,8 @@ import yaml
 
 from dotenv import load_dotenv
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -55,6 +56,32 @@ app = FastAPI(title="Squilla API Router", version="0.1.0", docs_url=None)
 
 
 ROUTER_API_KEY = os.environ.get("ROUTER_API_KEY", "")
+
+_security = HTTPBearer(auto_error=False)
+
+
+def _verify_auth(credentials: HTTPAuthorizationCredentials | None = Depends(_security)):
+    """Verify the caller presents the configured router API key (if set)."""
+    if not ROUTER_API_KEY:
+        # No key configured -> allow (open mode)
+        return True
+    if credentials is None:
+        from fastapi import HTTPException, status as http_status
+        raise HTTPException(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization header",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    provided = credentials.credentials or ""
+    # Bearer token may be prefixed with nothing; header already strips "Bearer "
+    if provided != ROUTER_API_KEY:
+        from fastapi import HTTPException, status as http_status
+        raise HTTPException(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid router API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return True
 
 
 
@@ -548,7 +575,7 @@ def _get_backend(route_class: str) -> dict[str, str]:
 
 @app.post("/v1/chat/completions")
 
-async def chat_completions(request: Request):
+async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)):
 
     """Classify, route, call the backend model, return OpenAI response."""
 
@@ -769,7 +796,7 @@ async def _call_backend_anthropic(
 
 @app.post("/v1/messages")
 
-async def anthropic_messages(request: Request):
+async def anthropic_messages(request: Request, _auth: bool = Depends(_verify_auth)):
 
     """Anthropic Messages format endpoint for Codex / Claude Code / Anthropic SDK."""
 

@@ -70,6 +70,36 @@ response = client.chat.completions.create(
 )
 ```
 
+## 鉴权
+
+Router 会校验 `Authorization: Bearer <ROUTER_API_KEY>`。`.env` 里的 `ROUTER_API_KEY` 是自己定义的本地密钥，和后端平台的 key 无关。
+
+```text
+# 在 .env 里设置
+ROUTER_API_KEY=router-local-key-001
+```
+
+- 无 key / 错误 key → 401
+- `GET /health` 和 `GET /router-status` 不需要鉴权
+
+OpenCode / 智能体接入时：
+
+```json
+{
+  "provider": {
+    "router": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "http://127.0.0.1:8002/v1",
+        "apiKey": "router-local-key-001"
+      }
+    }
+  }
+}
+```
+
+如果不想启用鉴权，把 `ROUTER_API_KEY` 留空即可。
+
 ## 模型配置
 
 在 `.env` 里配置每个档位的模型、key 和 base_url。
@@ -112,7 +142,10 @@ C3_BASE_URL=https://chat.tianhe-tech.com/v1
 
 每个档位在 `.env` 里用 `SUPPORTS_IMAGE` / `SUPPORTS_VIDEO` 标注多模态能力：
 
-```text
+VISION_MODEL=GLM-5.3-Flash
+VISION_API_KEY=sk-your-key
+VISION_BASE_URL=https://chat.tianhe-tech.com/v1
+
 # c0: 支持图片
 C0_MODEL=Qwen3.8-27B
 C0_SUPPORTS_IMAGE=1
