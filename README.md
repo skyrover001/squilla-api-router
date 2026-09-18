@@ -70,6 +70,30 @@ response = client.chat.completions.create(
 )
 ```
 
+## 降级 / 回退（Failover）
+
+当选中的档位在后端调用失败时，Router 自动降级到下一个可用档位，客户端无感知。
+
+- **触发条件**：连接失败、超时、HTTP 429/5xx/4xx、或响应无有效内容
+- **降级顺序**：选中的档位 → 其余档位按 c0/c1/c2/c3 顺序尝试
+- **图片请求**：只在支持图片的档位（c0/c1/c3）内降级
+- **全部失败**：返回最后一个错误 + `_router.attempts` 列出所有尝试
+
+响应 `_router` 新增字段：
+
+```json
+{
+  "_router": {
+    "tier": "c1",
+    "model": "GLM-5.3-Flash",
+    "attempts": ["R0", "c0", "c1"],
+    "fallback_used": true
+  }
+}
+```
+
+`attempts` 记录完整尝试链路，`fallback_used` 标记是否发生了降级。
+
 ## 鉴权
 
 Router 会校验 `Authorization: Bearer <ROUTER_API_KEY>`。`.env` 里的 `ROUTER_API_KEY` 是自己定义的本地密钥，和后端平台的 key 无关。

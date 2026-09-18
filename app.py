@@ -101,6 +101,10 @@ PROVIDERS: dict[str, dict[str, str]] = {
         "base_url": os.environ.get("BACKEND_BASE_URL", ""),
         "api_key": os.environ.get("BACKEND_API_KEY", ""),
     },
+    "starfire": {
+        "base_url": os.environ.get("STARFIRE_BASE_URL", ""),
+        "api_key": os.environ.get("STARFIRE_API_KEY", ""),
+    },
 }
 
 
@@ -119,28 +123,28 @@ def _provider(provider: str) -> dict[str, str]:
 TIERS: dict[str, dict[str, str]] = {
 
     "c0": {
-        "provider": "tianhe",
+        "provider": os.environ.get("C0_PROVIDER", "tianhe"),
         "model": os.environ.get("C0_MODEL", ""),
         "supports_image": os.environ.get("C0_SUPPORTS_IMAGE", "0") == "1",
         "supports_video": os.environ.get("C0_SUPPORTS_VIDEO", "0") == "1",
     },
 
     "c1": {
-        "provider": "tianhe",
+        "provider": os.environ.get("C1_PROVIDER", "tianhe"),
         "model": os.environ.get("C1_MODEL", ""),
         "supports_image": os.environ.get("C1_SUPPORTS_IMAGE", "0") == "1",
         "supports_video": os.environ.get("C1_SUPPORTS_VIDEO", "0") == "1",
     },
 
     "c2": {
-        "provider": "tianhe",
+        "provider": os.environ.get("C2_PROVIDER", "tianhe"),
         "model": os.environ.get("C2_MODEL", ""),
         "supports_image": os.environ.get("C2_SUPPORTS_IMAGE", "0") == "1",
         "supports_video": os.environ.get("C2_SUPPORTS_VIDEO", "0") == "1",
     },
 
     "c3": {
-        "provider": "tianhe",
+        "provider": os.environ.get("C3_PROVIDER", "tianhe"),
         "model": os.environ.get("C3_MODEL", "") or os.environ.get("C2_MODEL", ""),
         "supports_image": os.environ.get("C3_SUPPORTS_IMAGE", "0") == "1",
         "supports_video": os.environ.get("C3_SUPPORTS_VIDEO", "0") == "1",
@@ -273,6 +277,21 @@ def _vision_valid_tiers() -> list[str]:
     return [name for name, cfg in TIERS.items() if cfg.get("supports_image")]
 
 
+def _is_failure(result: dict, status: int) -> bool:
+    """Return True if the backend response should trigger failover."""
+    if status >= 500 or status == 429:
+        return True
+    if status >= 400:
+        # 4xx auth/not-found etc: fail over too (could be wrong key/model on one provider)
+        return True
+    if "choices" not in result or not result.get("choices"):
+        return True
+    msg = (result.get("choices") or [{}])[0].get("message") or {}
+    if not (msg.get("content") or msg.get("reasoning")):
+        return True
+    return False
+
+
 async def _call_backend(
     body: dict,
     backend: dict[str, str],
@@ -280,59 +299,109 @@ async def _call_backend(
     *,
     vision: bool = False,
     video: bool = False,
+    fallback_backends: list[dict[str, str]] | None = None,
+    fallback_route_classes: list[str] | None = None,
 ):
-    """Call the backend model and return the response."""
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {backend['api_key']}",
-    }
-
+    """Call the backend model with failover to fallback backends on failure."""
     is_stream = body.get("stream", False)
 
-    if is_stream:
-        async def _stream():
-            async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
-                async with client.stream(
-                    "POST",
-                    f"{backend['base_url']}/chat/completions",
-                    json=body,
-                    headers=headers,
-                ) as resp:
-                    async for chunk in resp.aiter_bytes():
-                        yield chunk
+    attempts: list[str] = []
 
-        return StreamingResponse(
-            _stream(),
-            media_type="text/event-stream",
-            headers={
-                "X-Router-Tier": route_class,
-                "X-Router-Model": backend["model"],
-            },
-        )
+    candidates: list[tuple[dict[str, str], str]] = [(backend, route_class)]
+    for fb, frc in zip(fallback_backends or [], fallback_route_classes or []):
+        candidates.append((fb, frc))
 
+    for idx, (cand_backend, cand_route) in enumerate(candidates):
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {cand_backend['api_key']}",
+        }
+        attempts.append(cand_route)
+        try:
+            if is_stream:
+                async def _stream():
+                    async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
+                        async with client.stream(
+                            "POST",
+                            f"{cand_backend['base_url']}/chat/completions",
+                            json=body,
+                            headers=headers,
+                        ) as resp:
+                            async for chunk in resp.aiter_bytes():
+                                yield chunk
+
+                # For streaming, we can't easily pre-check the HTTP status without
+                # buffering the whole SSE; forward the first candidate as-is.
+                return StreamingResponse(
+                    _stream(),
+                    media_type="text/event-stream",
+                    headers={
+                        "X-Router-Tier": cand_route,
+                        "X-Router-Model": cand_backend["model"],
+                    },
+                )
+
+            resp = httpx.post(
+                f"{cand_backend['base_url']}/chat/completions",
+                json=body,
+                headers=headers,
+                timeout=120.0,
+                trust_env=False,
+            )
+            result = resp.json()
+            status = resp.status_code
+            if not _is_failure(result, status) or idx == len(candidates) - 1:
+                result["_router"] = {
+                    "tier": cand_route,
+                    "model": cand_backend["model"],
+                    "vision": vision,
+                    "video": video,
+                    "source": "vision_route" if vision else "ml_route",
+                    "attempts": attempts,
+                    "fallback_used": idx > 0,
+                }
+                return JSONResponse(content=result, status_code=status)
+            # else: keep trying next candidate
+        except Exception as exc:
+            if idx == len(candidates) - 1:
+                result = {"error": {"message": str(exc)}}
+                result["_router"] = {
+                    "tier": cand_route,
+                    "model": cand_backend["model"],
+                    "vision": vision,
+                    "video": video,
+                    "attempts": attempts,
+                    "fallback_used": idx > 0,
+                    "source": "vision_route" if vision else "ml_route",
+                }
+                return JSONResponse(content=result, status_code=502)
+            # else try next
+
+    # unreachable
+    return JSONResponse(content={"error": {"message": "all backends failed"}}, status_code=502)
+
+
+def _fallback_chain(route_class: str, route_info: dict, vision: bool = False) -> list[tuple[dict, str]]:
+    """Build failover chain: selected tier first, then remaining tiers by
+    canonical order (c0..c3). For vision, only include vision-capable tiers."""
+    current = route_class
+    # Get raw route class (R0..R3) to determine order for text vs vision remap
+    tiers_in_order = ["c0", "c1", "c2", "c3"]
+    if vision:
+        tiers_in_order = _vision_valid_tiers()
+    # remove current, build chain
+    rest = [t for t in tiers_in_order if t != current]
+    chain = []
     try:
-        resp = httpx.post(
-            f"{backend['base_url']}/chat/completions",
-            json=body,
-            headers=headers,
-            timeout=120.0,
-            trust_env=False,
-        )
-        result = resp.json()
-        status = resp.status_code
-    except Exception as exc:
-        result = {"error": {"message": str(exc)}}
-        status = 502
-
-    result["_router"] = {
-        "tier": route_class,
-        "model": backend["model"],
-        "vision": vision,
-        "video": video,
-        "source": "vision_route" if vision else "ml_route",
-    }
-
-    return JSONResponse(content=result, status_code=status)
+        chain.append((_get_backend(current), current))
+    except Exception:
+        pass
+    for t in rest:
+        try:
+            chain.append((_get_backend(t), t))
+        except Exception:
+            continue
+    return chain
 
 
 def _classify(user_text: str, messages: list[dict[str, Any]], tools: list | None, valid_tiers: list[str] | None = None) -> dict:
@@ -625,9 +694,12 @@ async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)
         route_class = route_info["route_class"]
         backend = _get_backend(route_class)
         body["model"] = backend["model"]
+        chain = _fallback_chain(route_class, route_info, vision=True)
         return await _call_backend(
             body, backend, route_class,
             vision=True, video=is_video,
+            fallback_backends=[b for b, _ in chain[1:]],
+            fallback_route_classes=[r for _, r in chain[1:]],
         )
 
     route_info = _classify(user_text, messages, tools)
@@ -640,111 +712,32 @@ async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)
 
     body["model"] = backend["model"]
 
-
-
-    headers = {
-
-        "Content-Type": "application/json",
-
-        "Authorization": f"Bearer {backend['api_key']}",
-
-    }
-
-
-
-    is_stream = body.get("stream", False)
-
-
-
-    if is_stream:
-
-        async def _stream():
-
-            async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
-
-                async with client.stream(
-
-                    "POST",
-
-                    f"{backend['base_url']}/chat/completions",
-
-                    json=body,
-
-                    headers=headers,
-
-                ) as resp:
-
-                    async for chunk in resp.aiter_bytes():
-
-                        yield chunk
-
-
-
-        return StreamingResponse(
-
-            _stream(),
-
-            media_type="text/event-stream",
-
-            headers={
-
-                "X-Router-Tier": route_class,
-
-                "X-Router-Model": backend["model"],
-
-            },
-
-        )
-
-
-
-    try:
-
-        resp = httpx.post(
-
-            f"{backend['base_url']}/chat/completions",
-
-            json=body,
-
-            headers=headers,
-
-            timeout=120.0, trust_env=False,
-
-        )
-
-        result = resp.json()
-
-        status = resp.status_code
-
-    except Exception as exc:
-
-        result = {"error": {"message": str(exc)}}
-
-        status = 502
-
-
-
-    result["_router"] = {
-
-        "tier": route_class,
-
-        "model": backend["model"],
-
-        "raw_route_class": route_info.get("raw_route_class"),
-
-        "confidence": route_info.get("confidence"),
-
-        "thinking_mode": route_info.get("thinking_mode"),
-
-        "material_tokens": route_info.get("material_tokens"),
-
-        "probabilities": route_info.get("probabilities"),
-
-    }
-
-
-
-    return JSONResponse(content=result, status_code=status)
+    chain = _fallback_chain(route_class, route_info)
+    # Call with failover: selected backend first, then fallbacks in tier order.
+    resp = await _call_backend(
+        body, backend, route_class,
+        fallback_backends=[b for b, _ in chain[1:]],
+        fallback_route_classes=[r for _, r in chain[1:]],
+    )
+    # Merge classification metadata into the response _router.
+    if hasattr(resp, "body"):
+        import json as _json
+        try:
+            payload = _json.loads(resp.body)
+            if isinstance(payload, dict):
+                if "_router" in payload and isinstance(payload["_router"], dict):
+                    payload["_router"].update({
+                        "raw_route_class": route_info.get("raw_route_class"),
+                        "confidence": route_info.get("confidence"),
+                        "thinking_mode": route_info.get("thinking_mode"),
+                        "material_tokens": route_info.get("material_tokens"),
+                        "probabilities": route_info.get("probabilities"),
+                    })
+                resp.body = _json.dumps(payload).encode("utf-8")
+                resp.headers["content-length"] = str(len(resp.body))
+        except Exception:
+            pass
+    return resp
 
 
 
