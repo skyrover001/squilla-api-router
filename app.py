@@ -104,8 +104,15 @@ PROVIDERS: dict[str, dict[str, str]] = {
     "starfire": {
         "base_url": os.environ.get("STARFIRE_BASE_URL", ""),
         "api_key": os.environ.get("STARFIRE_API_KEY", ""),
+        "format": os.environ.get("STARFIRE_FORMAT", ""),
     },
 }
+
+
+def _prov_format(provider: str, default: str) -> str:
+    """Return the outbound endpoint path forced by a provider, else default."""
+    p = PROVIDERS.get(provider) or {}
+    return p.get("format") or default
 
 
 def _provider(provider: str) -> dict[str, str]:
@@ -358,6 +365,7 @@ async def _call_backend(
                     "vision": vision,
                     "video": video,
                     "source": "vision_route" if vision else "ml_route",
+                    "endpoint": endpoint_path,
                     "attempts": attempts,
                     "fallback_used": idx > 0,
                 }
@@ -643,6 +651,8 @@ def _get_backend(route_class: str) -> dict[str, str]:
             "model": cfg["model"],
             "api_key": p.get("api_key", ""),
             "base_url": p.get("base_url", ""),
+            "format": p.get("format") or "",
+            "provider": provider,
         }
 
     tier = route_class if route_class in TIERS else ROUTE_CLASS_TO_TIER.get(route_class, "c1")
@@ -679,24 +689,26 @@ async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)
         route_class = route_info["route_class"]
         backend = _get_backend(route_class)
         body["model"] = backend["model"]
+        ep = _prov_format(backend.get("provider"), "/chat/completions")
         chain = _fallback_chain(route_class, route_info, vision=True)
         return await _call_backend(
             body, backend, route_class, vision=True, video=has_video,
             fallback_backends=[b for b, _ in chain[1:]],
             fallback_route_classes=[r for _, r in chain[1:]],
-            endpoint_path="/chat/completions",
+            endpoint_path=ep,
         )
 
     route_info = _classify(user_text, messages, tools)
     route_class = route_info["route_class"]
     backend = _get_backend(route_class)
     body["model"] = backend["model"]
+    ep = _prov_format(backend.get("provider"), "/chat/completions")
     chain = _fallback_chain(route_class, route_info)
     resp = await _call_backend(
         body, backend, route_class,
         fallback_backends=[b for b, _ in chain[1:]],
         fallback_route_classes=[r for _, r in chain[1:]],
-        endpoint_path="/chat/completions",
+        endpoint_path=ep,
     )
     # Merge classification metadata
     if hasattr(resp, "body"):
@@ -770,24 +782,26 @@ async def responses_endpoint(request: Request, _auth: bool = Depends(_verify_aut
         route_class = route_info["route_class"]
         backend = _get_backend(route_class)
         body["model"] = backend["model"]
+        ep = _prov_format(backend.get("provider"), "/responses")
         chain = _fallback_chain(route_class, route_info, vision=True)
         return await _call_backend(
             body, backend, route_class, vision=True, video=has_video,
             fallback_backends=[b for b, _ in chain[1:]],
             fallback_route_classes=[r for _, r in chain[1:]],
-            endpoint_path="/responses",
+            endpoint_path=ep,
         )
 
     route_info = _classify(user_text, msgs_for_classify, tools)
     route_class = route_info["route_class"]
     backend = _get_backend(route_class)
     body["model"] = backend["model"]
+    ep = _prov_format(backend.get("provider"), "/responses")
     chain = _fallback_chain(route_class, route_info)
     return await _call_backend(
         body, backend, route_class,
         fallback_backends=[b for b, _ in chain[1:]],
         fallback_route_classes=[r for _, r in chain[1:]],
-        endpoint_path="/responses",
+        endpoint_path=ep,
     )
 
 
@@ -811,24 +825,26 @@ async def anthropic_messages(request: Request, _auth: bool = Depends(_verify_aut
         route_class = route_info["route_class"]
         backend = _get_backend(route_class)
         body["model"] = backend["model"]
+        ep = _prov_format(backend.get("provider"), "/messages")
         chain = _fallback_chain(route_class, route_info, vision=True)
         return await _call_backend(
             body, backend, route_class, vision=True, video=has_video,
             fallback_backends=[b for b, _ in chain[1:]],
             fallback_route_classes=[r for _, r in chain[1:]],
-            endpoint_path="/messages",
+            endpoint_path=ep,
         )
 
     route_info = _classify(user_text, messages, tools)
     route_class = route_info["route_class"]
     backend = _get_backend(route_class)
     body["model"] = backend["model"]
+    ep = _prov_format(backend.get("provider"), "/messages")
     chain = _fallback_chain(route_class, route_info)
     return await _call_backend(
         body, backend, route_class,
         fallback_backends=[b for b, _ in chain[1:]],
         fallback_route_classes=[r for _, r in chain[1:]],
-        endpoint_path="/messages",
+        endpoint_path=ep,
     )
 
 
