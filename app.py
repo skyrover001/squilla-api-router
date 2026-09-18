@@ -57,6 +57,13 @@ app = FastAPI(title="Squilla API Router", version="0.1.0", docs_url=None)
 
 ROUTER_API_KEY = os.environ.get("ROUTER_API_KEY", "")
 
+
+# Rosetta conversion gateway (optional). If set, classified requests are
+# forwarded to rosetta (model rewritten to `<provider>/<model>`) which converts
+# format to each backend's native API.
+ROSETTA_URL = os.environ.get("ROSETTA_URL", "")
+ROSETTA_API_KEY = os.environ.get("ROSETTA_API_KEY", "sk-proxy-test")
+
 _security = HTTPBearer(auto_error=False)
 
 
@@ -100,6 +107,7 @@ PROVIDERS: dict[str, dict[str, str]] = {
     "tianhe": {
         "base_url": os.environ.get("BACKEND_BASE_URL", ""),
         "api_key": os.environ.get("BACKEND_API_KEY", ""),
+        "format": os.environ.get("BACKEND_FORMAT", ""),
     },
     "starfire": {
         "base_url": os.environ.get("STARFIRE_BASE_URL", ""),
@@ -107,12 +115,6 @@ PROVIDERS: dict[str, dict[str, str]] = {
         "format": os.environ.get("STARFIRE_FORMAT", ""),
     },
 }
-
-
-def _prov_format(provider: str, default: str) -> str:
-    """Return the outbound endpoint path forced by a provider, else default."""
-    p = PROVIDERS.get(provider) or {}
-    return p.get("format") or default
 
 
 def _provider(provider: str) -> dict[str, str]:
@@ -284,13 +286,21 @@ def _vision_valid_tiers() -> list[str]:
     return [name for name, cfg in TIERS.items() if cfg.get("supports_image")]
 
 
-def _is_failure(result: dict, status: int) -> bool:
+def _is_failure(result: dict, status: int, outbound_format: str = "openai_chat") -> bool:
     """Return True if the backend response should trigger failover."""
-    if status >= 500 or status == 429:
+    if status >= 500 or status == 429 or status >= 400:
         return True
-    if status >= 400:
-        # 4xx auth/not-found etc: fail over too (could be wrong key/model on one provider)
-        return True
+    if outbound_format == "openai_responses":
+        # Responses backends return `output` (list) + `status`.
+        if result.get("status") == "incomplete":
+            return True
+        output = result.get("output")
+        if not output:
+            return True
+        return False
+    if outbound_format == "anthropic":
+        return not result.get("content")
+    # openai_chat
     if "choices" not in result or not result.get("choices"):
         return True
     msg = (result.get("choices") or [{}])[0].get("message") or {}
@@ -304,14 +314,22 @@ async def _call_backend(
     backend: dict[str, str],
     route_class: str,
     *,
+    inbound_fmt: str = "openai_chat",
     vision: bool = False,
     video: bool = False,
     fallback_backends: list[dict[str, str]] | None = None,
     fallback_route_classes: list[str] | None = None,
-    endpoint_path: str = "/chat/completions",
 ):
-    """Call the backend model with failover to fallback backends on failure."""
-    is_stream = body.get("stream", False)
+    from squilla_api_router._formats import (
+        FORMAT_TO_PATH,
+        convert_request,
+        convert_response,
+        convert_stream,
+        cd_available,
+    )
+
+    can_convert = cd_available()
+    is_stream = bool(body.get("stream", False))
 
     attempts: list[str] = []
 
@@ -325,52 +343,69 @@ async def _call_backend(
             "Authorization": f"Bearer {cand_backend['api_key']}",
         }
         attempts.append(cand_route)
+        # Per-candidate format/path: providers may natively speak different
+        # formats (tianhe=chat, starfire=responses), so each candidate must
+        # be converted to / sent at its own native endpoint.
+        outbound_fmt = cand_backend.get("format") or inbound_fmt
+        outbound_path = FORMAT_TO_PATH.get(outbound_fmt, "/chat/completions")
+        url = f"{cand_backend['base_url']}{outbound_path}"
         try:
+            outbound_body = body
+            _conv_used = False
+            if can_convert and inbound_fmt != outbound_fmt:
+                try:
+                    outbound_body = convert_request(body, inbound_fmt, outbound_fmt)
+                    _conv_used = True
+                except Exception:
+                    outbound_body = body
+
             if is_stream:
                 async def _stream():
                     async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
-                        async with client.stream(
-                            "POST",
-                            f"{cand_backend['base_url']}{endpoint_path}",
-                            json=body,
-                            headers=headers,
-                        ) as resp:
-                            async for chunk in resp.aiter_bytes():
-                                yield chunk
+                        async with client.stream("POST", url, json=outbound_body, headers=headers) as resp:
+                            if resp.status_code != 200:
+                                async for chunk in resp.aiter_bytes():
+                                    yield chunk
+                                return
+                            async for out_chunk in convert_stream(resp.aiter_bytes(), inbound_fmt, outbound_fmt):
+                                yield out_chunk
 
-                # For streaming, we can't easily pre-check the HTTP status without
-                # buffering the whole SSE; forward the first candidate as-is.
                 return StreamingResponse(
                     _stream(),
                     media_type="text/event-stream",
                     headers={
                         "X-Router-Tier": cand_route,
                         "X-Router-Model": cand_backend["model"],
+                        "X-Router-Converted": "1" if _conv_used else "0",
                     },
                 )
 
-            resp = httpx.post(
-                f"{cand_backend['base_url']}{endpoint_path}",
-                json=body,
-                headers=headers,
-                timeout=120.0,
-                trust_env=False,
-            )
+            resp = httpx.post(url, json=outbound_body, headers=headers, timeout=120.0, trust_env=False)
             result = resp.json()
             status = resp.status_code
-            if not _is_failure(result, status) or idx == len(candidates) - 1:
-                result["_router"] = {
+            out_resp = result
+            if status == 200 and can_convert and _conv_used and inbound_fmt != outbound_fmt:
+                try:
+                    out_resp = convert_response(result, inbound_fmt, outbound_fmt)
+                except Exception:
+                    out_resp = result
+
+            # Inspect the RAW backend response for failure (not the converted
+            # one, which is shaped for the agent and lacks outbound fields).
+            if not _is_failure(result, status, outbound_fmt) or idx == len(candidates) - 1:
+                out_resp["_router"] = {
                     "tier": cand_route,
                     "model": cand_backend["model"],
                     "vision": vision,
                     "video": video,
                     "source": "vision_route" if vision else "ml_route",
-                    "endpoint": endpoint_path,
+                    "endpoint": outbound_path,
+                    "outbound_format": outbound_fmt,
+                    "converted": _conv_used and inbound_fmt != outbound_fmt,
                     "attempts": attempts,
                     "fallback_used": idx > 0,
                 }
-                return JSONResponse(content=result, status_code=status)
-            # else: keep trying next candidate
+                return JSONResponse(content=out_resp, status_code=status)
         except Exception as exc:
             if idx == len(candidates) - 1:
                 result = {"error": {"message": str(exc)}}
@@ -384,11 +419,8 @@ async def _call_backend(
                     "source": "vision_route" if vision else "ml_route",
                 }
                 return JSONResponse(content=result, status_code=502)
-            # else try next
 
-    # unreachable
     return JSONResponse(content={"error": {"message": "all backends failed"}}, status_code=502)
-
 
 def _fallback_chain(route_class: str, route_info: dict, vision: bool = False) -> list[tuple[dict, str]]:
     """Build failover chain: selected tier first, then remaining tiers by
@@ -647,11 +679,18 @@ def _get_backend(route_class: str) -> dict[str, str]:
             return None
         provider = str(cfg.get("provider") or "")
         p = PROVIDERS.get(provider) or {}
+        fmt = p.get("format") or ""
+        if fmt == "/responses":
+            fmt = "openai_responses"
+        elif fmt == "/messages":
+            fmt = "anthropic"
+        elif not fmt:
+            fmt = "openai_chat"
         return {
             "model": cfg["model"],
             "api_key": p.get("api_key", ""),
             "base_url": p.get("base_url", ""),
-            "format": p.get("format") or "",
+            "format": fmt,
             "provider": provider,
         }
 
@@ -684,31 +723,25 @@ async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)
         if not valid_tiers:
             backend = {"model": VISION_MODEL, "api_key": VISION_API_KEY, "base_url": VISION_BASE_URL}
             body["model"] = VISION_MODEL
-            return await _call_backend(body, backend, "vision", vision=True, video=has_video, endpoint_path="/chat/completions")
+            return await _call_backend(body, backend, "vision", inbound_fmt="openai_chat", vision=True, video=has_video)
         route_info = _classify(user_text, messages, tools, valid_tiers=valid_tiers)
         route_class = route_info["route_class"]
         backend = _get_backend(route_class)
         body["model"] = backend["model"]
-        ep = _prov_format(backend.get("provider"), "/chat/completions")
         chain = _fallback_chain(route_class, route_info, vision=True)
-        return await _call_backend(
-            body, backend, route_class, vision=True, video=has_video,
-            fallback_backends=[b for b, _ in chain[1:]],
-            fallback_route_classes=[r for _, r in chain[1:]],
-            endpoint_path=ep,
-        )
+        return await _call_backend(body, backend, route_class, inbound_fmt="openai_chat", vision=True, video=has_video,
+                                   fallback_backends=[b for b, _ in chain[1:]],
+                                   fallback_route_classes=[r for _, r in chain[1:]])
 
     route_info = _classify(user_text, messages, tools)
     route_class = route_info["route_class"]
     backend = _get_backend(route_class)
     body["model"] = backend["model"]
-    ep = _prov_format(backend.get("provider"), "/chat/completions")
     chain = _fallback_chain(route_class, route_info)
     resp = await _call_backend(
-        body, backend, route_class,
+        body, backend, route_class, inbound_fmt="openai_chat",
         fallback_backends=[b for b, _ in chain[1:]],
         fallback_route_classes=[r for _, r in chain[1:]],
-        endpoint_path=ep,
     )
     # Merge classification metadata
     if hasattr(resp, "body"):
@@ -777,31 +810,25 @@ async def responses_endpoint(request: Request, _auth: bool = Depends(_verify_aut
         if not valid_tiers:
             backend = {"model": VISION_MODEL, "api_key": VISION_API_KEY, "base_url": VISION_BASE_URL}
             body["model"] = VISION_MODEL
-            return await _call_backend(body, backend, "vision", vision=True, video=has_video, endpoint_path="/responses")
+            return await _call_backend(body, backend, "vision", inbound_fmt="openai_responses", vision=True, video=has_video)
         route_info = _classify(user_text, msgs_for_classify, tools, valid_tiers=valid_tiers)
         route_class = route_info["route_class"]
         backend = _get_backend(route_class)
         body["model"] = backend["model"]
-        ep = _prov_format(backend.get("provider"), "/responses")
         chain = _fallback_chain(route_class, route_info, vision=True)
-        return await _call_backend(
-            body, backend, route_class, vision=True, video=has_video,
-            fallback_backends=[b for b, _ in chain[1:]],
-            fallback_route_classes=[r for _, r in chain[1:]],
-            endpoint_path=ep,
-        )
+        return await _call_backend(body, backend, route_class, inbound_fmt="openai_responses", vision=True, video=has_video,
+                                   fallback_backends=[b for b, _ in chain[1:]],
+                                   fallback_route_classes=[r for _, r in chain[1:]])
 
     route_info = _classify(user_text, msgs_for_classify, tools)
     route_class = route_info["route_class"]
     backend = _get_backend(route_class)
     body["model"] = backend["model"]
-    ep = _prov_format(backend.get("provider"), "/responses")
     chain = _fallback_chain(route_class, route_info)
     return await _call_backend(
-        body, backend, route_class,
+        body, backend, route_class, inbound_fmt="openai_responses",
         fallback_backends=[b for b, _ in chain[1:]],
         fallback_route_classes=[r for _, r in chain[1:]],
-        endpoint_path=ep,
     )
 
 
@@ -820,31 +847,25 @@ async def anthropic_messages(request: Request, _auth: bool = Depends(_verify_aut
         if not valid_tiers:
             backend = {"model": VISION_MODEL, "api_key": VISION_API_KEY, "base_url": VISION_BASE_URL}
             body["model"] = VISION_MODEL
-            return await _call_backend(body, backend, "vision", vision=True, video=has_video, endpoint_path="/messages")
+            return await _call_backend(body, backend, "vision", inbound_fmt="anthropic", vision=True, video=has_video)
         route_info = _classify(user_text, messages, tools, valid_tiers=valid_tiers)
         route_class = route_info["route_class"]
         backend = _get_backend(route_class)
         body["model"] = backend["model"]
-        ep = _prov_format(backend.get("provider"), "/messages")
         chain = _fallback_chain(route_class, route_info, vision=True)
-        return await _call_backend(
-            body, backend, route_class, vision=True, video=has_video,
-            fallback_backends=[b for b, _ in chain[1:]],
-            fallback_route_classes=[r for _, r in chain[1:]],
-            endpoint_path=ep,
-        )
+        return await _call_backend(body, backend, route_class, inbound_fmt="anthropic", vision=True, video=has_video,
+                                   fallback_backends=[b for b, _ in chain[1:]],
+                                   fallback_route_classes=[r for _, r in chain[1:]])
 
     route_info = _classify(user_text, messages, tools)
     route_class = route_info["route_class"]
     backend = _get_backend(route_class)
     body["model"] = backend["model"]
-    ep = _prov_format(backend.get("provider"), "/messages")
     chain = _fallback_chain(route_class, route_info)
     return await _call_backend(
-        body, backend, route_class,
+        body, backend, route_class, inbound_fmt="anthropic",
         fallback_backends=[b for b, _ in chain[1:]],
         fallback_route_classes=[r for _, r in chain[1:]],
-        endpoint_path=ep,
     )
 
 

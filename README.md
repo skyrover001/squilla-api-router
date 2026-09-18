@@ -27,7 +27,11 @@ Squilla API Router（一个进程：ML 分类 → 策略门控 → 选模型 →
 | `POST /v1/responses` | OpenAI Responses API | OpenAI Responses SDK |
 | `POST /v1/messages` | Anthropic Messages | Codex、Claude Code、Anthropic SDK |
 
-三种格式均支持流式（SSE）。Router 只做：鉴权 → 图片/视频检测 → V4 分类选模型 → 替换 `model` 字段 → **原样转发**到后端对应的端点（`/chat/completions`、`/responses`、`/messages`），不转换格式。客户端用什么格式进来，收到的就是什么格式返回。后端需支持对应端点（starfire / tianhe 均支持三种格式）。
+三种格式均支持流式（SSE）。Router 的完整链路：鉴权 → 图片/视频检测 → V4 分类选模型 → 替换 model 字段 → 按后端原生格式自动转换并转发。
+
+客户端用什么格式进来，收到的就是什么格式返回；后端只支持哪一种格式，Router 就把它转成哪种（OpenAI Chat ⇄ Responses ⇄ Anthropic 全双向，含流式）。转换逻辑内置：Responses⇄Chat 复用 codex-deepseek（Apache 2.0），其余为轻量内置桥接，无需额外网关/服务。
+
+每个 Provider 在 .env 里用 XXX_FORMAT 声明其原生格式（openai_chat / openai_responses / anthropic），未声明默认 openai_chat。
 
 ## 快速启动
 
