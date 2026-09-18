@@ -94,38 +94,54 @@ VISION_MODEL = os.environ.get("VISION_MODEL", "GLM-5.3-Flash")
 VISION_BASE_URL = os.environ.get("VISION_BASE_URL", os.environ.get("BACKEND_BASE_URL", ""))
 VISION_API_KEY = os.environ.get("VISION_API_KEY", os.environ.get("BACKEND_API_KEY", ""))
 
-# Backend model configs per tier.
+# Provider table: provider name -> endpoint + key.
+# Tiers reference these by name, no repeated base_url/api_key per model.
+PROVIDERS: dict[str, dict[str, str]] = {
+    "tianhe": {
+        "base_url": os.environ.get("BACKEND_BASE_URL", ""),
+        "api_key": os.environ.get("BACKEND_API_KEY", ""),
+    },
+}
+
+
+def _provider(provider: str) -> dict[str, str]:
+    """Resolve a provider entry to {'model','api_key','base_url'}."""
+    p = PROVIDERS.get(provider, {})
+    return {
+        "model": "",
+        "api_key": p.get("api_key", ""),
+        "base_url": p.get("base_url", ""),
+    }
+
+
+# Backend model configs per tier. Each tier references a provider by name.
 
 TIERS: dict[str, dict[str, str]] = {
 
     "c0": {
+        "provider": "tianhe",
         "model": os.environ.get("C0_MODEL", ""),
-        "api_key": os.environ.get("C0_API_KEY", ""),
-        "base_url": os.environ.get("C0_BASE_URL", ""),
         "supports_image": os.environ.get("C0_SUPPORTS_IMAGE", "0") == "1",
         "supports_video": os.environ.get("C0_SUPPORTS_VIDEO", "0") == "1",
     },
 
     "c1": {
+        "provider": "tianhe",
         "model": os.environ.get("C1_MODEL", ""),
-        "api_key": os.environ.get("C1_API_KEY", ""),
-        "base_url": os.environ.get("C1_BASE_URL", ""),
         "supports_image": os.environ.get("C1_SUPPORTS_IMAGE", "0") == "1",
         "supports_video": os.environ.get("C1_SUPPORTS_VIDEO", "0") == "1",
     },
 
     "c2": {
+        "provider": "tianhe",
         "model": os.environ.get("C2_MODEL", ""),
-        "api_key": os.environ.get("C2_API_KEY", ""),
-        "base_url": os.environ.get("C2_BASE_URL", ""),
         "supports_image": os.environ.get("C2_SUPPORTS_IMAGE", "0") == "1",
         "supports_video": os.environ.get("C2_SUPPORTS_VIDEO", "0") == "1",
     },
 
     "c3": {
+        "provider": "tianhe",
         "model": os.environ.get("C3_MODEL", "") or os.environ.get("C2_MODEL", ""),
-        "api_key": os.environ.get("C3_API_KEY", "") or os.environ.get("C2_API_KEY", ""),
-        "base_url": os.environ.get("C3_BASE_URL", "") or os.environ.get("C2_BASE_URL", ""),
         "supports_image": os.environ.get("C3_SUPPORTS_IMAGE", "0") == "1",
         "supports_video": os.environ.get("C3_SUPPORTS_VIDEO", "0") == "1",
     },
@@ -545,28 +561,28 @@ def _classify(user_text: str, messages: list[dict[str, Any]], tools: list | None
 
 
 def _get_backend(route_class: str) -> dict[str, str]:
+    """Return the backend config for a route_class, resolving provider creds."""
 
-    """Return the backend config for a route_class."""
+    def _resolve(tier_name: str) -> dict[str, str] | None:
+        cfg = TIERS.get(tier_name)
+        if not cfg or not cfg.get("model"):
+            return None
+        provider = str(cfg.get("provider") or "")
+        p = PROVIDERS.get(provider) or {}
+        return {
+            "model": cfg["model"],
+            "api_key": p.get("api_key", ""),
+            "base_url": p.get("base_url", ""),
+        }
 
-    if route_class in TIERS:
-        tier = route_class
-    else:
-        tier = ROUTE_CLASS_TO_TIER.get(route_class, "c1")
-
-    cfg = TIERS.get(tier)
-
-    if cfg and cfg.get("model") and cfg.get("api_key"):
-
-        return cfg
-
+    tier = route_class if route_class in TIERS else ROUTE_CLASS_TO_TIER.get(route_class, "c1")
+    resolved = _resolve(tier)
+    if resolved:
+        return resolved
     # Fall back to c1.
-
-    fallback = TIERS.get("c1")
-
-    if fallback and fallback.get("model"):
-
+    fallback = _resolve("c1")
+    if fallback:
         return fallback
-
     raise ValueError(f"no backend configured for {route_class}")
 
 
@@ -1043,26 +1059,20 @@ async def router_status():
 
     """Report current tier configs (no keys leaked)."""
 
+    tiers_out = {}
+    for tier, cfg in TIERS.items():
+        provider = PROVIDERS.get(str(cfg.get("provider") or ""), {})
+        tiers_out[tier] = {
+            "model": cfg.get("model", ""),
+            "provider": cfg.get("provider", ""),
+            "base_url": provider.get("base_url", ""),
+            "supports_image": cfg.get("supports_image", False),
+            "supports_video": cfg.get("supports_video", False),
+            "configured": bool(cfg.get("model") and provider.get("api_key")),
+        }
     return {
-
         "ml_ready": _core is not None,
-
-        "tiers": {
-
-            tier: {
-
-                "model": cfg["model"],
-
-                "base_url": cfg["base_url"],
-
-                "configured": bool(cfg["model"] and cfg["api_key"]),
-
-            }
-
-            for tier, cfg in TIERS.items()
-
-        },
-
+        "providers": {name: {"base_url": p.get("base_url",""), "configured": bool(p.get("api_key"))} for name, p in PROVIDERS.items()},
+        "tiers": tiers_out,
         "route_class_to_tier": ROUTE_CLASS_TO_TIER,
-
     }

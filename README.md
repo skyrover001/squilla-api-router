@@ -102,33 +102,58 @@ OpenCode / 智能体接入时：
 
 ## 模型配置
 
-在 `.env` 里配置每个档位的模型、key 和 base_url。
-四个档位可以指向完全不同的 provider，也可以都用同一个平台：
+支持多 provider：base_url 和 api_key 集中定义一次，每个档位只引用 provider 名 + 模型。
 
 ```text
-# 统一平台配置
+# Provider 表：端点 + key 只在此定义
 BACKEND_BASE_URL=https://chat.tianhe-tech.com/v1
-BACKEND_API_KEY=sk-your-key
+BACKEND_API_KEY=your-key
 
-# c0: 便宜快速
-C0_MODEL=GLM-5.3-Flash
-C0_API_KEY=sk-your-key
-C0_BASE_URL=https://chat.tianhe-tech.com/v1
+# 每个 tier：只填模型 + 能力标志
+C0_MODEL=Qwen3.8-27B
+C0_SUPPORTS_IMAGE=1
+C0_SUPPORTS_VIDEO=1
 
-# c1: 默认均衡
-C1_MODEL=DeepSeek-V4
-C1_API_KEY=sk-your-key
-C1_BASE_URL=https://chat.tianhe-tech.com/v1
+C1_MODEL=GLM-5.3-Flash
+C1_SUPPORTS_IMAGE=1
+C1_SUPPORTS_VIDEO=1
 
-# c2: 中等偏强
-C2_MODEL=Qwen3.8-27B
-C2_API_KEY=sk-your-key
-C2_BASE_URL=https://chat.tianhe-tech.com/v1
+C2_MODEL=DeepSeek-V4
+C2_SUPPORTS_IMAGE=0
+C2_SUPPORTS_VIDEO=0
 
-# c3: 最强
 C3_MODEL=Qwen3.5-397B-A17B
-C3_API_KEY=sk-your-key
-C3_BASE_URL=https://chat.tianhe-tech.com/v1
+C3_SUPPORTS_IMAGE=1
+C3_SUPPORTS_VIDEO=1
+```
+
+### 配置多个 Provider
+
+`.env` 里每个 provider 用前缀定义端点，然后在代码的 `PROVIDERS` 表里注册并让 tier 引用。例如加一个 DeepSeek provider：
+
+```text
+# .env
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+DEEPSEEK_API_KEY=your-deepseek-key
+```
+
+```python
+# app.py PROVIDERS 表
+PROVIDERS = {
+    "tianhe": {...},
+    "deepseek": {
+        "base_url": os.environ.get("DEEPSEEK_BASE_URL", ""),
+        "api_key": os.environ.get("DEEPSEEK_API_KEY", ""),
+    },
+}
+```
+
+然后任意档位（如 c2）可以指向 deepseek：
+
+```text
+C2_MODEL=deepseek-chat
+# C2_PROVIDER=deepseek   ← 可选，代码里 tier 默认 provider 是 tianhe
+# 如需切换，在 app.py 的 TIERS 里把该档的 provider 改为 "deepseek"
 ```
 
 ## 多模态图片/视频路由
