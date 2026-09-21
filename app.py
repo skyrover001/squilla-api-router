@@ -325,7 +325,7 @@ def _is_failure(result: dict, status: int, outbound_format: str = "openai_chat")
     if "choices" not in result or not result.get("choices"):
         return True
     msg = (result.get("choices") or [{}])[0].get("message") or {}
-    if not (msg.get("content") or msg.get("reasoning")):
+    if not (msg.get("content") or msg.get("reasoning") or msg.get("tool_calls")):
         return True
     return False
 
@@ -431,7 +431,8 @@ async def _call_backend(
                                     continue
                                 _delta = (_obj.get("choices") or [{}])[0].get("delta") or {}
                                 if (_delta.get("content") or _delta.get("reasoning")
-                                        or _delta.get("reasoning_content")):
+                                        or _delta.get("reasoning_content")
+                                        or _delta.get("tool_calls")):
                                     has_real_content = True
                                     break
                                 _evt = _obj.get("type") or ""
