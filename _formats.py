@@ -238,6 +238,14 @@ def convert_response(result: dict, inbound_fmt: str, outbound_fmt: str) -> dict:
                 if isinstance(part, dict) and part.get("type") == "text":
                     text = part.get("text", "")
                     break
+            if not text:
+                # DeepSeek's anthropic endpoint (deepseek-flash) may return
+                # only a `thinking` block when max_tokens is hit mid-thought;
+                # surface it rather than returning an empty reply.
+                for part in result.get("content") or []:
+                    if isinstance(part, dict) and part.get("type") == "thinking":
+                        text = part.get("thinking") or ""
+                        break
             return _chat_response_from({
                 "id": result.get("id", "chatcmpl-1"),
                 "created": 0,
@@ -269,6 +277,11 @@ def convert_response(result: dict, inbound_fmt: str, outbound_fmt: str) -> dict:
                 if isinstance(part, dict) and part.get("type") == "text":
                     content = part.get("text", "")
                     break
+            if not content:
+                for part in result.get("content") or []:
+                    if isinstance(part, dict) and part.get("type") == "thinking":
+                        content = part.get("thinking") or ""
+                        break
             usage = {
                 "input_tokens": (result.get("usage") or {}).get("input_tokens", 0),
                 "output_tokens": (result.get("usage") or {}).get("output_tokens", 0),
@@ -299,6 +312,14 @@ def convert_response(result: dict, inbound_fmt: str, outbound_fmt: str) -> dict:
     else:
         content = _output_text_from_items(result.get("output"))
         usage = result.get("usage") or {}
+        # DeepSeek's anthropic endpoint with deepseek-flash may return only a
+        # `thinking` block (no `text`) when max_tokens is reached mid-thought.
+        # Surface the thinking content instead of returning an empty reply.
+        if not content:
+            for part in result.get("content") or []:
+                if isinstance(part, dict) and part.get("type") == "thinking":
+                    content = part.get("thinking") or ""
+                    break
     return {
         "id": str(result.get("id", "msg_router")),
         "type": "message",

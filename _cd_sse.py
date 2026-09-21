@@ -33,6 +33,11 @@ class SseTranslator:
         self.output_items: list[dict] = []
         self._last_usage = None
 
+    @property
+    def is_empty(self) -> bool:
+        """True if no visible text/reasoning/tool content was emitted."""
+        return not (self.content_so_far or self.reasoning_so_far or self.tool_calls)
+
     def _emit(self, event: str, data: dict) -> str:
         return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 

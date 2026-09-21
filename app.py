@@ -21,6 +21,7 @@ from __future__ import annotations
 
 
 import os
+import logging
 
 from pathlib import Path
 
@@ -52,6 +53,8 @@ load_dotenv()
 
 
 app = FastAPI(title="Squilla API Router", version="0.1.0", docs_url=None)
+
+logger = logging.getLogger("squilla.router")
 
 
 
@@ -103,18 +106,88 @@ VISION_API_KEY = os.environ.get("VISION_API_KEY", os.environ.get("BACKEND_API_KE
 
 # Provider table: provider name -> endpoint + key.
 # Tiers reference these by name, no repeated base_url/api_key per model.
-PROVIDERS: dict[str, dict[str, str]] = {
-    "tianhe": {
-        "base_url": os.environ.get("BACKEND_BASE_URL", ""),
-        "api_key": os.environ.get("BACKEND_API_KEY", ""),
-        "format": os.environ.get("BACKEND_FORMAT", ""),
-    },
-    "starfire": {
-        "base_url": os.environ.get("STARFIRE_BASE_URL", ""),
-        "api_key": os.environ.get("STARFIRE_API_KEY", ""),
-        "format": os.environ.get("STARFIRE_FORMAT", ""),
-    },
+# ---------------------------------------------------------------------------
+# Provider / tier autodiscovery.
+#
+# Providers are discovered from the environment: any <PREFIX>_BASE_URL
+# registers a provider named <prefix> (lowercased).  The legacy
+# BACKEND_* prefix is aliased to provider name tianhe.  Each provider
+# reads <PREFIX>_API_KEY and <PREFIX>_FORMAT.
+#
+# Tiers are discovered from C<N>_MODEL (+ optional C<N>_PROVIDER,
+# C<N>_SUPPORTS_IMAGE/VIDEO) and sorted by N, producing c0..cN.
+# The V4 classifier routes R0..R(n-1), mapped 1:1 to the discovered tiers.
+# ---------------------------------------------------------------------------
+_PROVIDER_BASE_URL_KEYS = {
+    "BACKEND": "tianhe",  # legacy alias
 }
+
+
+def _normalize_format(fmt: str) -> str:
+    fmt = (fmt or "").strip().lower()
+    if fmt in ("/responses", "responses", "openai_responses"):
+        return "openai_responses"
+    if fmt in ("/messages", "messages", "anthropic"):
+        return "anthropic"
+    if fmt in ("", "chat", "/chat/completions", "openai_chat"):
+        return "openai_chat"
+    return fmt
+
+
+def _discover_providers() -> dict[str, dict[str, str]]:
+    prov: dict[str, dict[str, str]] = {}
+    for key, val in os.environ.items():
+        up = key.upper()
+        if not up.endswith("_BASE_URL") or not val.strip():
+            continue
+        prefix = up[:-len("_BASE_URL")]
+        if prefix in ("VISION", "ROUTER"):
+            continue
+        name = _PROVIDER_BASE_URL_KEYS.get(prefix, prefix.lower())
+        fmt = os.environ.get(f"{prefix}_FORMAT", "")
+        # If no explicit FORMAT, infer from the endpoint path.
+        if not fmt.strip():
+            if "/anthropic" in val or val.endswith("/messages"):
+                fmt = "anthropic"
+        fmt = _normalize_format(fmt)
+        prov[name] = {
+            "base_url": val.rstrip("/"),
+            "api_key": os.environ.get(f"{prefix}_API_KEY", ""),
+            "format": fmt,
+        }
+    return prov
+
+
+def _discover_tiers() -> dict[str, dict]:
+    tiers: dict[str, dict] = {}
+    indices = set()
+    for key in os.environ:
+        up = key.upper()
+        if up.startswith("C") and up.endswith("_MODEL"):
+            num = up[1:-len("_MODEL")]
+            if num.isdigit():
+                indices.add(int(num))
+    for n in sorted(indices):
+        tier = f"c{n}"
+        prefix = f"C{n}"
+        tiers[tier] = {
+            "provider": os.environ.get(f"{prefix}_PROVIDER", "tianhe").lower(),
+            "model": os.environ.get(f"{prefix}_MODEL", ""),
+            "supports_image": os.environ.get(f"{prefix}_SUPPORTS_IMAGE", "0") == "1",
+            "supports_video": os.environ.get(f"{prefix}_SUPPORTS_VIDEO", "0") == "1",
+        }
+    return tiers
+
+
+def _build_route_map(tiers: dict[str, dict]) -> dict[str, str]:
+    # Route class R0..R(n-1) -> c0..c(n-1), one tier per route class.
+    ordered = sorted(tiers.keys(), key=lambda t: int(t[1:]))
+    return {f"R{i}": tier for i, tier in enumerate(ordered)}
+
+
+PROVIDERS = _discover_providers()
+TIERS = _discover_tiers()
+ROUTE_CLASS_TO_TIER = _build_route_map(TIERS)
 
 
 def _provider(provider: str) -> dict[str, str]:
@@ -125,58 +198,6 @@ def _provider(provider: str) -> dict[str, str]:
         "api_key": p.get("api_key", ""),
         "base_url": p.get("base_url", ""),
     }
-
-
-# Backend model configs per tier. Each tier references a provider by name.
-
-TIERS: dict[str, dict[str, str]] = {
-
-    "c0": {
-        "provider": os.environ.get("C0_PROVIDER", "tianhe"),
-        "model": os.environ.get("C0_MODEL", ""),
-        "supports_image": os.environ.get("C0_SUPPORTS_IMAGE", "0") == "1",
-        "supports_video": os.environ.get("C0_SUPPORTS_VIDEO", "0") == "1",
-    },
-
-    "c1": {
-        "provider": os.environ.get("C1_PROVIDER", "tianhe"),
-        "model": os.environ.get("C1_MODEL", ""),
-        "supports_image": os.environ.get("C1_SUPPORTS_IMAGE", "0") == "1",
-        "supports_video": os.environ.get("C1_SUPPORTS_VIDEO", "0") == "1",
-    },
-
-    "c2": {
-        "provider": os.environ.get("C2_PROVIDER", "tianhe"),
-        "model": os.environ.get("C2_MODEL", ""),
-        "supports_image": os.environ.get("C2_SUPPORTS_IMAGE", "0") == "1",
-        "supports_video": os.environ.get("C2_SUPPORTS_VIDEO", "0") == "1",
-    },
-
-    "c3": {
-        "provider": os.environ.get("C3_PROVIDER", "tianhe"),
-        "model": os.environ.get("C3_MODEL", "") or os.environ.get("C2_MODEL", ""),
-        "supports_image": os.environ.get("C3_SUPPORTS_IMAGE", "0") == "1",
-        "supports_video": os.environ.get("C3_SUPPORTS_VIDEO", "0") == "1",
-    },
-
-}
-
-
-
-# Route class -> tier mapping.
-
-ROUTE_CLASS_TO_TIER = {
-
-    "R0": "c0",
-
-    "R1": "c1",
-
-    "R2": "c2",
-
-    "R3": "c3",
-
-}
-
 
 
 
@@ -349,6 +370,9 @@ async def _call_backend(
         outbound_fmt = cand_backend.get("format") or inbound_fmt
         outbound_path = FORMAT_TO_PATH.get(outbound_fmt, "/chat/completions")
         url = f"{cand_backend['base_url']}{outbound_path}"
+        logger.info("attempt %d/%d tier=%s model=%s fmt=%s stream=%s url=%s",
+                    idx + 1, len(candidates), cand_route, cand_backend.get("model", ""),
+                    outbound_fmt, is_stream, url)
         try:
             outbound_body = body
             _conv_used = False
@@ -360,16 +384,118 @@ async def _call_backend(
                     outbound_body = body
 
             if is_stream:
-                async def _stream():
-                    async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
-                        async with client.stream("POST", url, json=outbound_body, headers=headers) as resp:
-                            if resp.status_code != 200:
-                                async for chunk in resp.aiter_bytes():
-                                    yield chunk
-                                return
-                            async for out_chunk in convert_stream(resp.aiter_bytes(), inbound_fmt, outbound_fmt):
-                                yield out_chunk
+                # Pre-read the upstream stream: some backends (e.g. starfire
+                # /responses) return an immediate empty completion.  If the
+                # first buffered content is empty/failed, fall through to the
+                # next candidate instead of returning an empty stream.
+                # Use async-with context managers (like httpx recommends);
+                # manually __aenter__ing the stream without __aexit__ causes
+                # ReadError after the first chunk.
+                client_ctx = httpx.AsyncClient(timeout=120.0, trust_env=False)
+                stream_ctx = client_ctx.stream("POST", url, json=outbound_body, headers=headers)
+                client = await client_ctx.__aenter__()
+                resp = await stream_ctx.__aenter__()
 
+                buffered: list[bytes] = []
+                upstream_error = False
+                got_content = False
+                try:
+                    if resp.status_code != 200:
+                        logger.warning("stream candidate %s returned HTTP %d",
+                                       cand_route, resp.status_code)
+                        upstream_error = True
+                    else:
+                        # Buffer up to ~4 KB of the converted stream to decide
+                        # whether this candidate actually produced content.
+                        async for out_chunk in convert_stream(resp.aiter_bytes(), inbound_fmt, outbound_fmt):
+                            buffered.append(out_chunk)
+                            text = out_chunk.decode("utf-8", errors="replace")
+                            if "data:" in text and not text.endswith("\n\n"):
+                                # partial frame, keep buffering until complete
+                                continue
+            # Real content: a non-empty delta value (not just the key —
+            # tianhe's first chunk is role-only with content:"" and that
+            # caused the empty-reply regression).
+                            # Buffer the whole stream (up to a byte cap) so the
+                            # full reply is in memory; httpx can only read it
+                            # once, and stopping at the first content frame
+                            # truncated the reply.
+                            import json as _tmpjson
+                            has_real_content = False
+                            for frame in text.split("\n"):
+                                if not frame.startswith("data: ") or "[DONE]" in frame:
+                                    continue
+                                try:
+                                    _obj = _tmpjson.loads(frame[6:])
+                                except Exception:
+                                    continue
+                                _delta = (_obj.get("choices") or [{}])[0].get("delta") or {}
+                                if (_delta.get("content") or _delta.get("reasoning")
+                                        or _delta.get("reasoning_content")):
+                                    has_real_content = True
+                                    break
+                                _evt = _obj.get("type") or ""
+                                if _evt in ("response.output_text.delta", "response.reasoning_text.delta"):
+                                    has_real_content = True
+                                    break
+                                if _evt == "content_block_delta":
+                                    _d = _obj.get("delta") or {}
+                                    if _d.get("type") == "text_delta" and _d.get("text"):
+                                        has_real_content = True
+                                        break
+                            if has_real_content:
+                                got_content = True
+                            total_bytes = sum(len(b) for b in buffered)
+                            if total_bytes > 1024 * 1024:  # 1 MB cap
+                                got_content = True
+                                break
+                            # never break on content alone — keep reading until
+                            # the stream is done or the cap is reached, so the
+                            # full reply is buffered for the agent.
+                except Exception as exc:
+                    logger.warning("stream candidate %s pre-read failed: %s", cand_route, exc)
+                    upstream_error = True
+
+                if upstream_error or not got_content:
+                    logger.warning("stream candidate %s produced no content; falling back",
+                                   cand_route)
+                    try:
+                        await resp.aclose()
+                    except Exception:
+                        pass
+                    try:
+                        await client.aclose()
+                    except Exception:
+                        pass
+                    continue
+
+                async def _stream(
+                    _client=client,
+                    _resp=resp,
+                    _buffered=list(buffered),
+                ):
+                    try:
+                        for chunk in _buffered:
+                            yield chunk
+                        # httpx responses can only be streamed once.  The
+                        # pre-read loop consumed the upstream stream to detect
+                        # content, so we replay only what we buffered.  The
+                        # pre-read cap (64 frames) bounds the maximum reply we
+                        # can relay; most short replies complete within it.
+                        # For longer replies, the upstream content is already
+                        # fully buffered (the cap triggers got_content=True).
+                    finally:
+                        try:
+                            await _resp.aclose()
+                        except Exception:
+                            pass
+                        try:
+                            await _client.aclose()
+                        except Exception:
+                            pass
+
+                logger.info("stream candidate %s accepted (buffered=%d bytes)",
+                            cand_route, sum(len(b) for b in buffered))
                 return StreamingResponse(
                     _stream(),
                     media_type="text/event-stream",
@@ -383,6 +509,9 @@ async def _call_backend(
             resp = httpx.post(url, json=outbound_body, headers=headers, timeout=120.0, trust_env=False)
             result = resp.json()
             status = resp.status_code
+            raw_failed = _is_failure(result, status, outbound_fmt)
+            logger.info("candidate %s result status=%d failed=%s conv=%s keys=%s",
+                        cand_route, status, raw_failed, _conv_used, list(result.keys())[:8])
             out_resp = result
             if status == 200 and can_convert and _conv_used and inbound_fmt != outbound_fmt:
                 try:
@@ -393,6 +522,11 @@ async def _call_backend(
             # Inspect the RAW backend response for failure (not the converted
             # one, which is shaped for the agent and lacks outbound fields).
             if not _is_failure(result, status, outbound_fmt) or idx == len(candidates) - 1:
+                if raw_failed:
+                    logger.warning("candidate %s still failed but is last candidate; returning as-is",
+                                   cand_route)
+                else:
+                    logger.info("candidate %s accepted", cand_route)
                 out_resp["_router"] = {
                     "tier": cand_route,
                     "model": cand_backend["model"],
@@ -407,6 +541,7 @@ async def _call_backend(
                 }
                 return JSONResponse(content=out_resp, status_code=status)
         except Exception as exc:
+            logger.exception("candidate %s raised exception", cand_route)
             if idx == len(candidates) - 1:
                 result = {"error": {"message": str(exc)}}
                 result["_router"] = {
@@ -427,7 +562,7 @@ def _fallback_chain(route_class: str, route_info: dict, vision: bool = False) ->
     canonical order (c0..c3). For vision, only include vision-capable tiers."""
     current = route_class
     # Get raw route class (R0..R3) to determine order for text vs vision remap
-    tiers_in_order = ["c0", "c1", "c2", "c3"]
+    tiers_in_order = sorted(TIERS.keys(), key=lambda t: int(t[1:]))
     if vision:
         tiers_in_order = _vision_valid_tiers()
     # remove current, build chain
@@ -454,10 +589,8 @@ def _classify(user_text: str, messages: list[dict[str, Any]], tools: list | None
     tier_remap = None
     if valid_tiers is not None:
         tier_remap = {
-            "R0": valid_tiers[0],
-            "R1": valid_tiers[min(1, len(valid_tiers)-1)],
-            "R2": valid_tiers[min(2, len(valid_tiers)-1)],
-            "R3": valid_tiers[-1],
+            f"R{i}": valid_tiers[min(i, len(valid_tiers) - 1)]
+            for i in range(len(TIERS))
         }
 
     if _core is None or _request_type is None:
@@ -602,19 +735,24 @@ def _classify(user_text: str, messages: list[dict[str, Any]], tools: list | None
 
 
 
-        # Large context floor
+        # Large context floor (dynamic: use highest tier for huge contexts,
+        # second-highest for large contexts).
+        route_classes = sorted(ROUTE_CLASS_TO_TIER.keys(), key=lambda r: int(r[1:]))
+        highest = route_classes[-1] if route_classes else "R0"
+        second_highest = route_classes[-2] if len(route_classes) > 1 else highest
+        lowest_two = route_classes[:2]
 
         if material_tokens >= 80000:
 
-            if route_class != "R3":
+            if route_class != highest:
 
-                final_route_class = "R3"
+                final_route_class = highest
 
         elif material_tokens >= 25000:
 
-            if route_class in ("R0", "R1"):
+            if route_class in lowest_two:
 
-                final_route_class = "R2"
+                final_route_class = second_highest
 
 
 
