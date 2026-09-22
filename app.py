@@ -375,10 +375,17 @@ async def _call_backend(
                     outbound_fmt, is_stream, url)
         try:
             outbound_body = body
+            # Player-safe: each candidate must send its OWN model name; the
+            # endpoint layer only set body.model to the initially-selected
+            # tier's model.  Without this, a fallback to another provider
+            # would send the wrong model name (e.g. deepseek-flash to
+            # starfire's /responses -> 404).
+            outbound_body = dict(body)
+            outbound_body["model"] = cand_backend["model"]
             _conv_used = False
             if can_convert and inbound_fmt != outbound_fmt:
                 try:
-                    outbound_body = convert_request(body, inbound_fmt, outbound_fmt)
+                    outbound_body = convert_request(outbound_body, inbound_fmt, outbound_fmt)
                     _conv_used = True
                 except Exception:
                     outbound_body = body
@@ -495,6 +502,7 @@ async def _call_backend(
 
                 logger.info("stream candidate %s accepted (buffered=%d bytes)",
                             cand_route, sum(len(b) for b in buffered))
+                print(f"[ROUTE] stream tier={cand_route} model={cand_backend.get('model', '')} outbound={outbound_fmt} url={url}", flush=True)
                 return StreamingResponse(
                     _stream(),
                     media_type="text/event-stream",
@@ -526,6 +534,7 @@ async def _call_backend(
                                    cand_route)
                 else:
                     logger.info("candidate %s accepted", cand_route)
+                print(f"[ROUTE] {cand_route} model={cand_backend.get('model','')} outbound={outbound_fmt} status={status} url={url}", flush=True)
                 out_resp["_router"] = {
                     "tier": cand_route,
                     "model": cand_backend["model"],
