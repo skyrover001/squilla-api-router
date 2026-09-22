@@ -10,10 +10,10 @@
 Squilla API Router（一个进程：ML 分类 → 策略门控 → 选模型 → 调用）
         ↓
 模型池
-  c0 → GLM-5.3-Flash（便宜快速）
-  c1 → DeepSeek-V4（默认均衡）
-  c2 → Qwen3.8-27B（中等偏强）
-  c3 → Qwen3.5-397B-A17B（最强）
+  c0 → Qwen3.8-27B（便宜快速）
+  c1 → glm-5.2（默认均衡）
+  c2 → glm-5.3-flash（中等偏强）
+  c3 → deepseek-flash（最强）
 ```
 
 使用和 OpenSquilla 相同的 V4 Phase 3 ML 分类器（BGE + LightGBM + MLP），
@@ -24,7 +24,72 @@ Squilla API Router（一个进程：ML 分类 → 策略门控 → 选模型 →
 | 端点 | 格式 | 适用框架 |
 |------|------|---------|
 | `POST /v1/chat/completions` | OpenAI Chat Completions | LangChain、OpenCode、openai 库 |
+| `POST /v1/responses` | OpenAI Responses API | OpenAI Responses SDK |
 | `POST /v1/messages` | Anthropic Messages | Codex、Claude Code、Anthropic SDK |
+
+三种格式均支持流式（SSE）。**客户端（Agent）用什么格式进来，收到的就是什么格式返回**；后端按它声明的原生 API 格式自动转换，用户无需关心 Agent 能否直接接入后端服务。
+
+Router 的完整链路：鉴权 → 图片/视频检测 → V4 分类选模型 → 替换 `model` 字段 → 按后端原生格式自动转换并转发 → 按进入格式原样转回。
+
+### 请求流示意图
+
+```mermaid
+graph LR
+    subgraph Agents["Agent 客户端（左侧）"]
+        A1["OpenCode / LangChain / openai 库<br/>(OpenAI Chat Completions)"]
+        A2["OpenAI Responses SDK<br/>(OpenAI Responses API)"]
+        A3["Claude Code / Codex<br/>(Anthropic Messages)"]
+        A1 -.->|"image / video"| A1M["多模态检测"]
+        A2 -.->|"image / video"| A1M
+        A3 -.->|"image / video"| A1M
+    end
+
+    subgraph Router["Squilla Router（中间）"]
+        R["V4 ML 分类选档"]
+        M["多模态路由<br/>筛选支持 image / video 的后端"]
+        TR["格式自动转换<br/>Chat ⇄ Responses ⇄ Anthropic"]
+    end
+
+    subgraph Backends["Backend MaaS（右侧）"]
+        B1["OpenAI 兼容 MaaS<br/>openai_chat"]
+        B2["OpenAI Responses MaaS<br/>openai_responses"]
+        B3["Anthropic 兼容 MaaS<br/>anthropic"]
+        B4["vLLM / Ollama / TGI<br/>openai_chat 或 anthropic<br/>(支持 image / video)"]
+    end
+
+    A1 -->|"/v1/chat/completions"| R
+    A2 -->|"/v1/responses"| R
+    A3 -->|"/v1/messages"| R
+    R -->|"纯文本"| TR
+    R -->|"含 image / video"| M
+    M -->|"按能力筛选后"| TR
+    TR -->|"/chat/completions"| B1
+    TR -->|"/responses"| B2
+    TR -->|"/messages"| B3
+    TR -->|"/chat/completions"| B4
+    TR -.->|"响应按进入格式原样返回"| A1
+    TR -.->|"响应按进入格式原样返回"| A2
+    TR -.->|"响应按进入格式原样返回"| A3
+```
+
+### 自动转换示例
+
+例如 Agent 以 **OpenAI Chat Completions** 接入（`/v1/chat/completions`），而本次路由到的后端只支持 **Anthropic Messages**（Anthropic 兼容 MaaS 的 `/messages`）：
+
+```text
+ Agent                        Squilla Router                后端（Anthropic 兼容 MaaS）
+  │   OpenAI Chat 请求          │                                    │
+  ├────────────────────────────►│  ML 分类选 R3                       │
+  │                             │  请求转成 Anthropic Messages ─────►│  /messages
+  │                             │                                    │
+  │                             │  ◄─────────────────────────────────┤  Anthropic 响应
+  │   OpenAI Chat 响应           │  响应转回 OpenAI Chat               │
+  ◄────────────────────────────┤                                    │
+```
+
+流式同样自动转换（SSE 进、SSE 出）：例如 Agent 用 Chat 流接入、后端返回 Anthropic 流，Router 会把 Anthropic 的 `message_start / content_block_delta / message_stop` 实时转成 Chat 的 `chat.completion.chunk` 流。
+
+转换由内置的 llm-rosetta 双向桥接完成：OpenAI Chat ⇄ Responses ⇄ Anthropic 全 6 方向自动转换（请求、响应、流式），无需额外网关或 SDK 适配。每个 Provider 在 `.env` 里用 `XXX_FORMAT` 声明其原生格式（`openai_chat` / `openai_responses` / `anthropic`），未声明默认 `openai_chat`。
 
 ## 快速启动
 
@@ -85,7 +150,7 @@ response = client.chat.completions.create(
 {
   "_router": {
     "tier": "c1",
-    "model": "GLM-5.3-Flash",
+    "model": "glm-5.2",
     "attempts": ["R0", "c0", "c1"],
     "fallback_used": true
   }
@@ -138,47 +203,41 @@ C0_MODEL=Qwen3.8-27B
 C0_SUPPORTS_IMAGE=1
 C0_SUPPORTS_VIDEO=1
 
-C1_MODEL=GLM-5.3-Flash
+C1_MODEL=glm-5.2
 C1_SUPPORTS_IMAGE=1
 C1_SUPPORTS_VIDEO=1
 
-C2_MODEL=DeepSeek-V4
+C2_MODEL=glm-5.3-flash
 C2_SUPPORTS_IMAGE=0
 C2_SUPPORTS_VIDEO=0
 
-C3_MODEL=Qwen3.5-397B-A17B
+C3_PROVIDER=deepseek
+C3_MODEL=deepseek-flash
 C3_SUPPORTS_IMAGE=1
 C3_SUPPORTS_VIDEO=1
 ```
 
-### 配置多个 Provider
+### 配置多个 Provider（无需改代码）
 
-`.env` 里每个 provider 用前缀定义端点，然后在代码的 `PROVIDERS` 表里注册并让 tier 引用。例如加一个 DeepSeek provider：
+Provider / Tier 均为**环境变量自动发现**，新增后端或档位只需改 `.env` 并重启：
 
 ```text
-# .env
-DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+# 新增一个 provider（任意前缀）：
+DEEPSEEK_BASE_URL=https://api.deepseek.com/anthropic
 DEEPSEEK_API_KEY=your-deepseek-key
-```
+DEEPSEEK_FORMAT=anthropic
 
-```python
-# app.py PROVIDERS 表
-PROVIDERS = {
-    "tianhe": {...},
-    "deepseek": {
-        "base_url": os.environ.get("DEEPSEEK_BASE_URL", ""),
-        "api_key": os.environ.get("DEEPSEEK_API_KEY", ""),
-    },
-}
-```
-
-然后任意档位（如 c2）可以指向 deepseek：
-
-```text
+# 让任意档位指向它：
+C2_PROVIDER=deepseek
 C2_MODEL=deepseek-chat
-# C2_PROVIDER=deepseek   ← 可选，代码里 tier 默认 provider 是 tianhe
-# 如需切换，在 app.py 的 TIERS 里把该档的 provider 改为 "deepseek"
 ```
+
+规则：
+
+- 任何 `<前缀>_BASE_URL` 自动注册一个 provider（前缀小写）；`<前缀>_API_KEY`、`<前缀>_FORMAT` 同组读取
+- `<前缀>_FORMAT` 可省略：按 base_url 路径推断（含 `/anthropic` 或 `/messages` → `anthropic`，否则 `openai_chat`）
+- 任何 `C<数字>_MODEL` 按数字排序自动生成档位 `c0..cN`（数量不限）
+- `C<N>_PROVIDER` 默认 `tianhe`（`BACKEND_*` 前缀即该 provider 的别名）
 
 ## 多模态图片/视频路由
 
@@ -191,9 +250,14 @@ C2_MODEL=deepseek-chat
 
 每个档位在 `.env` 里用 `SUPPORTS_IMAGE` / `SUPPORTS_VIDEO` 标注多模态能力：
 
+```text
 VISION_MODEL=GLM-5.3-Flash
 VISION_API_KEY=sk-your-key
 VISION_BASE_URL=https://chat.tianhe-tech.com/v1
+
+BACKEND_BASE_URL=https://your-openai-compatible-maas/v1
+BACKEND_API_KEY=your-key
+BACKEND_FORMAT=openai_chat
 
 # c0: 支持图片
 C0_MODEL=Qwen3.8-27B
@@ -201,12 +265,13 @@ C0_SUPPORTS_IMAGE=1
 C0_SUPPORTS_VIDEO=1
 
 # c2: 纯文本，不支持图片（图片请求会排除它）
-C2_MODEL=DeepSeek-V4
+C2_MODEL=glm-5.3-flash
 C2_SUPPORTS_IMAGE=0
 C2_SUPPORTS_VIDEO=0
 
 # c3: 支持图片
-C3_MODEL=Qwen3.5-397B-A17B
+C3_PROVIDER=deepseek
+C3_MODEL=deepseek-flash
 C3_SUPPORTS_IMAGE=1
 C3_SUPPORTS_VIDEO=1
 ```
@@ -227,7 +292,7 @@ C3_SUPPORTS_VIDEO=1
 | 图片请求提示词 | 路由 tier | 模型 |
 |---------------|----------|------|
 | "这是什么"（简单） | c0 | Qwen3.8-27B |
-| "分析架构+部署代码"（复杂） | c3 | Qwen3.5-397B-A17B |
+| "分析架构+部署代码"（复杂） | c3 | deepseek-flash |
 
 ### 响应标注
 
@@ -247,8 +312,8 @@ C3_SUPPORTS_VIDEO=1
 
 | 请求类型 | 分类结果 | 路由到的模型 | 置信度 |
 |---------|---------|------------|--------|
-| "你好，介绍自己" | R0 | GLM-5.3-Flash | 0.94 |
-| "分析并发问题，设计架构" | R3 | Qwen3.5-397B-A17B | 0.95 |
+| "你好，介绍自己" | R0 | Qwen3.8-27B | 0.94 |
+| "分析并发问题，设计架构" | R3 | deepseek-flash | 0.95 |
 
 ## 响应格式
 
@@ -262,7 +327,7 @@ C3_SUPPORTS_VIDEO=1
   "usage": {...},
   "_router": {
     "tier": "R0",
-    "model": "GLM-5.3-Flash",
+    "model": "Qwen3.8-27B",
     "raw_route_class": "R0",
     "confidence": 0.94,
     "thinking_mode": "T0",
@@ -280,7 +345,7 @@ Anthropic 格式响应：
   "type": "message",
   "role": "assistant",
   "content": [{"type": "text", "text": "..."}],
-  "model": "GLM-5.3-Flash",
+  "model": "Qwen3.8-27B",
   "stop_reason": "end_turn",
   "usage": {"input_tokens": 18, "output_tokens": 229},
   "_router": {...}
