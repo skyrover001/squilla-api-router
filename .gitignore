@@ -12,3 +12,8 @@ _deps/
 # OS
 .DS_Store
 Thumbs.db
+
+
+# Local backups (may contain secrets)
+*.bak
+*.bak_*

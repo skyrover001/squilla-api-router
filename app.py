@@ -341,7 +341,7 @@ async def _call_backend(
     fallback_backends: list[dict[str, str]] | None = None,
     fallback_route_classes: list[str] | None = None,
 ):
-    from squilla_api_router._formats import (
+    from squilla_api_router._formats_rosetta import (
         FORMAT_TO_PATH,
         convert_request,
         convert_response,
@@ -407,43 +407,41 @@ async def _call_backend(
                     else:
                         # Buffer up to ~4 KB of the converted stream to decide
                         # whether this candidate actually produced content.
-                        async for out_chunk in convert_stream(resp.aiter_bytes(), inbound_fmt, outbound_fmt):
-                            buffered.append(out_chunk)
-                            text = out_chunk.decode("utf-8", errors="replace")
-                            if "data:" in text and not text.endswith("\n\n"):
-                                # partial frame, keep buffering until complete
-                                continue
-            # Real content: a non-empty delta value (not just the key —
-            # tianhe's first chunk is role-only with content:"" and that
-            # caused the empty-reply regression).
-                            # Buffer the whole stream (up to a byte cap) so the
-                            # full reply is in memory; httpx can only read it
-                            # once, and stopping at the first content frame
-                            # truncated the reply.
+                            async for out_chunk in convert_stream(
+                                resp.aiter_bytes(), inbound_fmt, outbound_fmt,
+                                request_body=body,
+                            ):
+                                buffered.append(out_chunk)
                             import json as _tmpjson
                             has_real_content = False
-                            for frame in text.split("\n"):
-                                if not frame.startswith("data: ") or "[DONE]" in frame:
-                                    continue
-                                try:
-                                    _obj = _tmpjson.loads(frame[6:])
-                                except Exception:
-                                    continue
-                                _delta = (_obj.get("choices") or [{}])[0].get("delta") or {}
-                                if (_delta.get("content") or _delta.get("reasoning")
-                                        or _delta.get("reasoning_content")
-                                        or _delta.get("tool_calls")):
-                                    has_real_content = True
-                                    break
-                                _evt = _obj.get("type") or ""
-                                if _evt in ("response.output_text.delta", "response.reasoning_text.delta"):
-                                    has_real_content = True
-                                    break
-                                if _evt == "content_block_delta":
-                                    _d = _obj.get("delta") or {}
-                                    if _d.get("type") == "text_delta" and _d.get("text"):
+                            # A candidate is "real" if ANY buffered frame
+                            # carries text content, reasoning, or tool calls.
+                            for b in buffered:
+                                text = b.decode("utf-8", errors="replace")
+                                for frame in text.split("\n"):
+                                    if not frame.startswith("data: ") or "[DONE]" in frame:
+                                        continue
+                                    try:
+                                        _obj = _tmpjson.loads(frame[6:])
+                                    except Exception:
+                                        continue
+                                    _delta = (_obj.get("choices") or [{}])[0].get("delta") or {}
+                                    if (_delta.get("content") or _delta.get("reasoning")
+                                            or _delta.get("reasoning_content")
+                                            or _delta.get("tool_calls")):
                                         has_real_content = True
                                         break
+                                    _evt = _obj.get("type") or ""
+                                    if _evt in ("response.output_text.delta", "response.reasoning_text.delta"):
+                                        has_real_content = True
+                                        break
+                                    if _evt == "content_block_delta":
+                                        _d = _obj.get("delta") or {}
+                                        if _d.get("type") == "text_delta" and _d.get("text"):
+                                            has_real_content = True
+                                            break
+                                if has_real_content:
+                                    break
                             if has_real_content:
                                 got_content = True
                             total_bytes = sum(len(b) for b in buffered)
