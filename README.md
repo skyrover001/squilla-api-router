@@ -27,11 +27,80 @@ Squilla API Router（一个进程：ML 分类 → 策略门控 → 选模型 →
 | `POST /v1/responses` | OpenAI Responses API | OpenAI Responses SDK |
 | `POST /v1/messages` | Anthropic Messages | Codex、Claude Code、Anthropic SDK |
 
-三种格式均支持流式（SSE）。Router 的完整链路：鉴权 → 图片/视频检测 → V4 分类选模型 → 替换 model 字段 → 按后端原生格式自动转换并转发。
+三种格式均支持流式（SSE）。**客户端（Agent）用什么格式进来，收到的就是什么格式返回**；后端按它声明的原生 API 格式自动转换，用户无需关心 Agent 能否直接接入后端服务。
 
-客户端用什么格式进来，收到的就是什么格式返回；后端只支持哪一种格式，Router 就把它转成哪种（OpenAI Chat ⇄ Responses ⇄ Anthropic 全双向，含流式）。转换逻辑内置：Responses⇄Chat 复用 codex-deepseek（Apache 2.0），其余为轻量内置桥接，无需额外网关/服务。
+Router 的完整链路：鉴权 → 图片/视频检测 → V4 分类选模型 → 替换 `model` 字段 → 按后端原生格式自动转换并转发 → 按进入格式原样转回。
 
-每个 Provider 在 .env 里用 XXX_FORMAT 声明其原生格式（openai_chat / openai_responses / anthropic），未声明默认 openai_chat。
+### 请求流示意图
+
+```mermaid
+graph LR
+    subgraph Agents["Agent 客户端"]
+        A1["OpenCode / LangChain / openai 库<br/>(OpenAI Chat Completions)"]
+        A2["OpenAI Responses SDK<br/>(OpenAI Responses API)"]
+        A3["Claude Code / Codex<br/>(Anthropic Messages)"]
+    end
+
+    subgraph Router["Squilla Router"]
+        R["V4 ML 分类选档"]
+        TR["格式自动转换<br/>Chat ⇄ Responses ⇄ Anthropic"]
+    end
+
+    subgraph Backends["后端模型池"]
+        B1["天河<br/>openai_chat"]
+        B2["Starfire<br/>openai_responses"]
+        B3["DeepSeek<br/>anthropic"]
+    end
+
+    A1 -->|"/v1/chat/completions"| R
+    A2 -->|"/v1/responses"| R
+    A3 -->|"/v1/messages"| R
+    R --> TR
+    TR -->|"/chat/completions"| B1
+    TR -->|"/responses"| B2
+    TR -->|"/messages"| B3
+    TR -.->|"按进入格式原样返回"| A1
+    TR -.->|"按进入格式原样返回"| A2
+    TR -.->|"按进入格式原样返回"| A3
+```
+
+等效 ASCII 图：
+
+```text
+┌──────────────────────┐
+│  OpenCode / LangChain│──┐  OpenAI Chat
+│  openai 库           │  │
+└──────────────────────┘  │
+┌──────────────────────┐  │   ┌────────────────────────────────────┐
+│  Responses SDK       │  ├──►│ 鉴权 → ML 分类 → 格式自动转换      │
+│  (OpenAI Responses)  │──┤   │ (Chat ⇄ Responses ⇄ Anthropic)    │
+└──────────────────────┘  │   └────────────────────────────────────┘
+┌──────────────────────┐  │        │                    │               │
+│  Claude Code / Codex │──┘        ▼                    ▼               ▼
+│  (Anthropic Messages)│   ┌─────────────┐   ┌────────────────┐  ┌────────────┐
+└──────────────────────┘   │ 天河        │   │ Starfire       │  │ DeepSeek   │
+                           │ openai_chat │   │ openai_responses│  │ anthropic  │
+        ◄──  响应按进入格式原样转回  ──┴─────────────┘   └────────────────┘  └────────────┘
+```
+
+### 自动转换示例
+
+例如 Agent 以 **OpenAI Chat Completions** 接入（`/v1/chat/completions`），而本次路由到的后端只支持 **Anthropic Messages**（如 DeepSeek `/messages`）：
+
+```text
+ Agent                        Squilla Router                     后端（DeepSeek）
+  │   OpenAI Chat 请求          │                                    │
+  ├────────────────────────────►│  ML 分类选 R3                       │
+  │                             │  请求转成 Anthropic Messages ─────►│  /messages
+  │                             │                                    │
+  │                             │  ◄─────────────────────────────────┤  Anthropic 响应
+  │   OpenAI Chat 响应           │  响应转回 OpenAI Chat               │
+  ◄────────────────────────────┤                                    │
+```
+
+流式同样自动转换（SSE 进、SSE 出）：例如 Agent 用 Chat 流接入、后端返回 Anthropic 流，Router 会把 Anthropic 的 `message_start / content_block_delta / message_stop` 实时转成 Chat 的 `chat.completion.chunk` 流。
+
+转换由内置的 llm-rosetta 双向桥接完成：OpenAI Chat ⇄ Responses ⇄ Anthropic 全 6 方向自动转换（请求、响应、流式），无需额外网关或 SDK 适配。每个 Provider 在 `.env` 里用 `XXX_FORMAT` 声明其原生格式（`openai_chat` / `openai_responses` / `anthropic`），未声明默认 `openai_chat`。
 
 ## 快速启动
 
