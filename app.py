@@ -556,16 +556,14 @@ async def _call_backend(
 
     return JSONResponse(content={"error": {"message": "all backends failed"}}, status_code=502)
 
-def _fallback_chain(route_class: str, route_info: dict, vision: bool = False,
-                    tools: list | None = None) -> list[tuple[dict, str]]:
+def _fallback_chain(route_class: str, route_info: dict, vision: bool = False) -> list[tuple[dict, str]]:
     """Build failover chain: selected tier first, then remaining tiers by
     canonical order (c0..c3). For vision, only include vision-capable tiers.
 
-    When the request carries tools, skip candidates whose outbound format is
-    anthropic: in the current setup that is the DeepSeek Anthropic-compatible
-    endpoint, which only accepts its own web_search tools and returns 422 for
-    standard OpenAI function tools. Skipping it here avoids a guaranteed
-    failure before the first real attempt."""
+    llm-rosetta converts standard OpenAI function tools to each backend's
+    native tool format (e.g. Anthropic tool_use) before forwarding, so every
+    tier — including anthropic backends like DeepSeek — is a valid candidate.
+    """
     current = route_class
     # Get raw route class (R0..R3) to determine order for text vs vision remap
     tiers_in_order = sorted(TIERS.keys(), key=lambda t: int(t[1:]))
@@ -575,17 +573,12 @@ def _fallback_chain(route_class: str, route_info: dict, vision: bool = False,
     rest = [t for t in tiers_in_order if t != current]
     chain = []
     try:
-        cand = _get_backend(current)
-        if not (tools and cand.get("format") == "anthropic"):
-            chain.append((cand, current))
+        chain.append((_get_backend(current), current))
     except Exception:
         pass
     for t in rest:
         try:
-            cand = _get_backend(t)
-            if tools and cand.get("format") == "anthropic":
-                continue
-            chain.append((cand, t))
+            chain.append((_get_backend(t), t))
         except Exception:
             continue
     return chain
@@ -877,7 +870,7 @@ async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)
         route_class = route_info["route_class"]
         backend = _get_backend(route_class)
         body["model"] = backend["model"]
-        chain = _fallback_chain(route_class, route_info, vision=True, tools=tools)
+        chain = _fallback_chain(route_class, route_info, vision=True)
         return await _call_backend(body, backend, route_class, inbound_fmt="openai_chat", vision=True, video=has_video,
                                    fallback_backends=[b for b, _ in chain[1:]],
                                    fallback_route_classes=[r for _, r in chain[1:]])
@@ -886,7 +879,7 @@ async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)
     route_class = route_info["route_class"]
     backend = _get_backend(route_class)
     body["model"] = backend["model"]
-    chain = _fallback_chain(route_class, route_info, tools=tools)
+    chain = _fallback_chain(route_class, route_info)
     resp = await _call_backend(
         body, backend, route_class, inbound_fmt="openai_chat",
         fallback_backends=[b for b, _ in chain[1:]],
@@ -964,7 +957,7 @@ async def responses_endpoint(request: Request, _auth: bool = Depends(_verify_aut
         route_class = route_info["route_class"]
         backend = _get_backend(route_class)
         body["model"] = backend["model"]
-        chain = _fallback_chain(route_class, route_info, vision=True, tools=tools)
+        chain = _fallback_chain(route_class, route_info, vision=True)
         return await _call_backend(body, backend, route_class, inbound_fmt="openai_responses", vision=True, video=has_video,
                                    fallback_backends=[b for b, _ in chain[1:]],
                                    fallback_route_classes=[r for _, r in chain[1:]])
@@ -973,7 +966,7 @@ async def responses_endpoint(request: Request, _auth: bool = Depends(_verify_aut
     route_class = route_info["route_class"]
     backend = _get_backend(route_class)
     body["model"] = backend["model"]
-    chain = _fallback_chain(route_class, route_info, tools=tools)
+    chain = _fallback_chain(route_class, route_info)
     return await _call_backend(
         body, backend, route_class, inbound_fmt="openai_responses",
         fallback_backends=[b for b, _ in chain[1:]],
@@ -1001,7 +994,7 @@ async def anthropic_messages(request: Request, _auth: bool = Depends(_verify_aut
         route_class = route_info["route_class"]
         backend = _get_backend(route_class)
         body["model"] = backend["model"]
-        chain = _fallback_chain(route_class, route_info, vision=True, tools=tools)
+        chain = _fallback_chain(route_class, route_info, vision=True)
         return await _call_backend(body, backend, route_class, inbound_fmt="anthropic", vision=True, video=has_video,
                                    fallback_backends=[b for b, _ in chain[1:]],
                                    fallback_route_classes=[r for _, r in chain[1:]])
@@ -1010,7 +1003,7 @@ async def anthropic_messages(request: Request, _auth: bool = Depends(_verify_aut
     route_class = route_info["route_class"]
     backend = _get_backend(route_class)
     body["model"] = backend["model"]
-    chain = _fallback_chain(route_class, route_info, tools=tools)
+    chain = _fallback_chain(route_class, route_info)
     return await _call_backend(
         body, backend, route_class, inbound_fmt="anthropic",
         fallback_backends=[b for b, _ in chain[1:]],
