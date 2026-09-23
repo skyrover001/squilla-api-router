@@ -59,6 +59,11 @@ logger = logging.getLogger("squilla.router")
 
 
 ROUTER_API_KEY = os.environ.get("ROUTER_API_KEY", "")
+# Upstream (backend) call timeout, in seconds.
+# Long reasoning generations can easily exceed two minutes, so default is generous.
+# For streaming we use a short connect timeout and no read timeout.
+BACKEND_TIMEOUT = float(os.environ.get("BACKEND_TIMEOUT", "300"))
+BACKEND_CONNECT_TIMEOUT = float(os.environ.get("BACKEND_CONNECT_TIMEOUT", "30"))
 
 
 # Rosetta conversion gateway (optional). If set, classified requests are
@@ -411,7 +416,7 @@ async def _call_backend(
                 # Use async-with context managers (like httpx recommends);
                 # manually __aenter__ing the stream without __aexit__ causes
                 # ReadError after the first chunk.
-                client_ctx = httpx.AsyncClient(timeout=120.0, trust_env=False)
+                client_ctx = httpx.AsyncClient(timeout=httpx.Timeout(connect=BACKEND_CONNECT_TIMEOUT, read=None, write=30.0, pool=30.0), trust_env=False)
                 stream_ctx = client_ctx.stream("POST", url, json=outbound_body, headers=headers)
                 client = await client_ctx.__aenter__()
                 resp = await stream_ctx.__aenter__()
@@ -526,7 +531,7 @@ async def _call_backend(
                     },
                 )
 
-            resp = httpx.post(url, json=outbound_body, headers=headers, timeout=120.0, trust_env=False)
+            resp = httpx.post(url, json=outbound_body, headers=headers, timeout=BACKEND_TIMEOUT, trust_env=False)
             result = resp.json()
             status = resp.status_code
             raw_failed = _is_failure(result, status, outbound_fmt)
