@@ -1,16 +1,14 @@
 """Format conversion for three API shapes using Oaklight/llm-rosetta.
 
-Same public interface as `_formats.py` so `app.py` can swap backend without
-signature changes:
+Public interface:
   - FMT_CHAT / FMT_RESPONSES / FMT_ANTHROPIC / PATH_TO_FORMAT / FORMAT_TO_PATH
   - convert_request(body, inbound_fmt, outbound_fmt)
   - convert_response(result, inbound_fmt, outbound_fmt)
   - convert_stream(stream, inbound_fmt, outbound_fmt)  [async iterator]
   - cd_available() -> bool
 
-Internally delegates to llm-rosetta (hub-and-spoke IR).  The original
-hand-written bridges are kept in `_formats.py` and can be restored by
-importing that module instead.
+Internally delegates to llm-rosetta (hub-and-spoke IR).  llm-rosetta is the
+only conversion implementation; it must be installed.
 """
 
 from __future__ import annotations
@@ -72,8 +70,9 @@ def convert_request(body: dict, inbound_fmt: str, outbound_fmt: str) -> dict:
         return body
     lr = _load_lr()
     if not lr:
-        from squilla_api_router._formats_handwritten import convert_request as _h
-        return _h(body, inbound_fmt, outbound_fmt)
+        raise RuntimeError(
+            "llm-rosetta is required for format conversion but is not installed"
+        )
     return lr.convert(body, _prov(outbound_fmt), _prov(inbound_fmt))
 
 
@@ -83,8 +82,9 @@ def convert_response(result: dict, inbound_fmt: str, outbound_fmt: str) -> dict:
         return result
     lr = _load_lr()
     if not lr:
-        from squilla_api_router._formats_handwritten import convert_response as _h
-        return _h(result, inbound_fmt, outbound_fmt)
+        raise RuntimeError(
+            "llm-rosetta is required for format conversion but is not installed"
+        )
     # llm-rosetta's convert_response expects (upstream_response, request_body,
     # source_provider, target_provider).  We don't carry the request body here,
     # so we pass the response itself as a best-effort request; the pipeline
@@ -123,8 +123,7 @@ async def convert_stream(
     """Convert a streaming response from backend (outbound) back to agent
     (inbound) format.
 
-    Uses llm-rosetta's ConversionPipeline for stateful per-chunk translation
-    when available; otherwise falls back to the handwritten bridges.
+    Uses llm-rosetta's ConversionPipeline for stateful per-chunk translation.
     """
     if inbound_fmt == outbound_fmt:
         async for chunk in stream:
@@ -148,11 +147,9 @@ async def convert_stream(
         error = exc
 
     if error is not None:
-        # Fall back to handwritten bridges so streaming still works.
-        from squilla_api_router._formats_handwritten import convert_stream as _h
-        async for out in _h(stream, inbound_fmt, outbound_fmt):
-            yield out
-        return
+        raise RuntimeError(
+            f"llm-rosetta stream conversion failed for {source}<-{target}: {exc}"
+        )
 
     saw_any = False
     async for payload in frames:

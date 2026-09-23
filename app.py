@@ -70,20 +70,28 @@ ROSETTA_API_KEY = os.environ.get("ROSETTA_API_KEY", "sk-proxy-test")
 _security = HTTPBearer(auto_error=False)
 
 
-def _verify_auth(credentials: HTTPAuthorizationCredentials | None = Depends(_security)):
-    """Verify the caller presents the configured router API key (if set)."""
+def _verify_auth(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(_security)):
+    """Verify the caller presents the configured router API key (if set).
+
+    Accepts either standard ``Authorization: Bearer <key>`` or the
+    Anthropic-style ``x-api-key: <key>`` header, so Claude Code / Anthropic
+    SDK can connect to /v1/messages without custom auth plumbing."""
     if not ROUTER_API_KEY:
         # No key configured -> allow (open mode)
         return True
-    if credentials is None:
+    provided = ""
+    if credentials is not None:
+        provided = credentials.credentials or ""
+    if not provided:
+        # Anthropic-style clients (Claude Code / Anthropic SDK) send x-api-key.
+        provided = request.headers.get("x-api-key", "")
+    if not provided:
         from fastapi import HTTPException, status as http_status
         raise HTTPException(
             status_code=http_status.HTTP_401_UNAUTHORIZED,
             detail="Missing authorization header",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    provided = credentials.credentials or ""
-    # Bearer token may be prefixed with nothing; header already strips "Bearer "
     if provided != ROUTER_API_KEY:
         from fastapi import HTTPException, status as http_status
         raise HTTPException(
@@ -308,13 +316,18 @@ def _vision_valid_tiers() -> list[str]:
 
 
 def _is_failure(result: dict, status: int, outbound_format: str = "openai_chat") -> bool:
-    """Return True if the backend response should trigger failover."""
+    """Return True if the backend response should trigger failover.
+
+    Output truncation (Responses ``status: incomplete`` / chat
+    ``finish_reason: "length"`` / Anthropic ``stop_reason: "max_tokens"``) is
+    a normal response state, not a backend failure: gateways pass it through
+    with the truncation marker preserved so the caller can decide to retry
+    with a larger budget."""
     if status >= 500 or status == 429 or status >= 400:
         return True
     if outbound_format == "openai_responses":
         # Responses backends return `output` (list) + `status`.
-        if result.get("status") == "incomplete":
-            return True
+        # ``incomplete`` is a truncation state, not a failure -> pass through.
         output = result.get("output")
         if not output:
             return True
