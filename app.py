@@ -203,6 +203,73 @@ TIERS = _discover_tiers()
 ROUTE_CLASS_TO_TIER = _build_route_map(TIERS)
 
 
+# ---------------------------------------------------------------------------
+# Config hot-reload
+#
+# PROVIDERS / TIERS / ROUTE_CLASS_TO_TIER and the other env-driven settings
+# are built from .env at import time.  `_reload_config()` re-reads .env and
+# rebuilds every table, so edits to .env take effect WITHOUT restarting the
+# service.  It is triggered two ways:
+#   * automatically, by a per-request mtime check (`_reload_config_if_changed`)
+#   * explicitly, via `POST /admin/reload-config`
+# The module globals are reassigned atomically (fresh dict objects), so an
+# in-flight request keeps using the table it already resolved.
+# ---------------------------------------------------------------------------
+_ENV_FILE = Path(__file__).resolve().parent / ".env"
+_config_mtime: float | None = None
+
+
+def _reload_config() -> bool:
+    """Re-read .env and rebuild the provider/tier tables.  Returns True."""
+    global PROVIDERS, TIERS, ROUTE_CLASS_TO_TIER
+    global ROUTER_API_KEY, BACKEND_TIMEOUT, BACKEND_CONNECT_TIMEOUT
+    global VISION_MODEL, VISION_BASE_URL, VISION_API_KEY, _config_mtime
+
+    # override=True so edited values win over the values loaded at import.
+    load_dotenv(_ENV_FILE, override=True)
+
+    PROVIDERS = _discover_providers()
+    TIERS = _discover_tiers()
+    ROUTE_CLASS_TO_TIER = _build_route_map(TIERS)
+
+    ROUTER_API_KEY = os.environ.get("ROUTER_API_KEY", "")
+    BACKEND_TIMEOUT = float(os.environ.get("BACKEND_TIMEOUT", "300"))
+    BACKEND_CONNECT_TIMEOUT = float(os.environ.get("BACKEND_CONNECT_TIMEOUT", "30"))
+    VISION_MODEL = os.environ.get("VISION_MODEL", "GLM-5.3-Flash")
+    VISION_BASE_URL = os.environ.get("VISION_BASE_URL", os.environ.get("BACKEND_BASE_URL", ""))
+    VISION_API_KEY = os.environ.get("VISION_API_KEY", os.environ.get("BACKEND_API_KEY", ""))
+
+    try:
+        _config_mtime = _ENV_FILE.stat().st_mtime
+    except Exception:
+        _config_mtime = None
+    logger.info("config reloaded: providers=%s tiers=%s",
+                list(PROVIDERS.keys()), list(TIERS.keys()))
+    return True
+
+
+def _reload_config_if_changed() -> bool:
+    """Reload only when .env's mtime changed (cheap check per request)."""
+    global _config_mtime
+    try:
+        mtime = _ENV_FILE.stat().st_mtime
+    except Exception:
+        return False
+    if _config_mtime is None:
+        _config_mtime = mtime
+        return False
+    if mtime != _config_mtime:
+        return _reload_config()
+    return False
+
+
+@app.middleware("http")
+async def _config_hot_reload(request: Request, call_next):
+    """Pick up .env edits before handling each request (no restart needed)."""
+    _reload_config_if_changed()
+    return await call_next(request)
+
+
 def _provider(provider: str) -> dict[str, str]:
     """Resolve a provider entry to {'model','api_key','base_url'}."""
     p = PROVIDERS.get(provider, {})
@@ -1044,6 +1111,45 @@ async def health():
 
     return {"status": "ok", "ml_ready": _core is not None}
 
+
+
+@app.post("/admin/reload-config")
+
+async def reload_config_endpoint(_auth: bool = Depends(_verify_auth)):
+
+    """Force a config reload from .env (no restart).  Auth required."""
+
+    _reload_config()
+
+    return {
+
+        "status": "reloaded",
+
+        "providers": {
+
+            name: {"base_url": p.get("base_url", ""), "format": p.get("format", ""),
+
+                   "configured": bool(p.get("api_key"))}
+
+            for name, p in PROVIDERS.items()
+
+        },
+
+        "tiers": {
+
+            t: {"provider": c.get("provider", ""), "model": c.get("model", ""),
+
+                "supports_image": c.get("supports_image", False),
+
+                "supports_video": c.get("supports_video", False)}
+
+            for t, c in TIERS.items()
+
+        },
+
+        "route_class_to_tier": ROUTE_CLASS_TO_TIER,
+
+    }
 
 
 
