@@ -65,6 +65,31 @@ ROUTER_API_KEY = os.environ.get("ROUTER_API_KEY", "")
 BACKEND_TIMEOUT = float(os.environ.get("BACKEND_TIMEOUT", "300"))
 BACKEND_CONNECT_TIMEOUT = float(os.environ.get("BACKEND_CONNECT_TIMEOUT", "30"))
 
+# ---------------------------------------------------------------------------
+# Reasoning / thinking-strength routing.
+#
+# The ML classifier already produces a thinking mode (T0-T3).  This block maps
+# that mode onto each backend model's *declared* reasoning capability
+# (C<N>_REASONING_*), then injects the result in the agent's native format so
+# llm-rosetta can translate it to whatever the backend actually speaks.
+#
+# Disabled by default: with ROUTER_REASONING_ENABLED unset every request
+# behaves exactly as before (thinking_mode stays metadata only).
+# ---------------------------------------------------------------------------
+_EFFORT_LADDER = ("minimal", "low", "medium", "high", "xhigh", "max")
+_EFFORT_RANK = {v: i for i, v in enumerate(_EFFORT_LADDER)}
+_DEFAULT_THINKING_EFFORT = {
+    "T0": "minimal",
+    "T1": "low",
+    "T2": "medium",
+    "T3": "high",
+}
+
+ROUTER_REASONING_ENABLED = os.environ.get("ROUTER_REASONING_ENABLED", "0") == "1"
+ROUTER_REASONING_PRIORITY = (
+    os.environ.get("ROUTER_REASONING_PRIORITY", "agent").strip().lower() or "agent"
+)
+
 
 # Rosetta conversion gateway (optional). If set, classified requests are
 # forwarded to rosetta (model rewritten to `<provider>/<model>`) which converts
@@ -171,6 +196,52 @@ def _discover_providers() -> dict[str, dict[str, str]]:
     return prov
 
 
+def _parse_reasoning_capability(prefix: str) -> dict | None:
+    """Read `<prefix>_REASONING_*` from the environment.
+
+    Returns None when `<prefix>_REASONING_MODES` is absent/empty, which means
+    "this model does not support reasoning control" -- the router will then
+    never send thinking parameters to it.
+    """
+    modes_raw = os.environ.get(f"{prefix}_REASONING_MODES", "").strip()
+    if not modes_raw:
+        return None
+    modes = [m.strip().lower() for m in modes_raw.split(",") if m.strip()]
+    if not modes:
+        return None
+
+    def _opt(name: str) -> str | None:
+        val = os.environ.get(f"{prefix}_REASONING_{name}", "").strip().lower()
+        return val or None
+
+    ratio_raw = os.environ.get(f"{prefix}_REASONING_BUDGET_RATIO", "").strip()
+    try:
+        budget_ratio = float(ratio_raw) if ratio_raw else None
+    except ValueError:
+        budget_ratio = None
+
+    effort_min = _opt("EFFORT_MIN")
+    effort_max = _opt("EFFORT_MAX")
+    if effort_min not in _EFFORT_RANK:
+        effort_min = None
+    if effort_max not in _EFFORT_RANK:
+        effort_max = None
+    if effort_min and effort_max and _EFFORT_RANK[effort_min] > _EFFORT_RANK[effort_max]:
+        effort_min, effort_max = effort_max, effort_min
+
+    default_mode = _opt("DEFAULT_MODE")
+    if default_mode not in modes:
+        default_mode = "auto" if "auto" in modes else modes[0]
+
+    return {
+        "modes": modes,
+        "default_mode": default_mode,
+        "effort_min": effort_min,
+        "effort_max": effort_max,
+        "budget_ratio": budget_ratio,
+    }
+
+
 def _discover_tiers() -> dict[str, dict]:
     tiers: dict[str, dict] = {}
     indices = set()
@@ -188,6 +259,7 @@ def _discover_tiers() -> dict[str, dict]:
             "model": os.environ.get(f"{prefix}_MODEL", ""),
             "supports_image": os.environ.get(f"{prefix}_SUPPORTS_IMAGE", "0") == "1",
             "supports_video": os.environ.get(f"{prefix}_SUPPORTS_VIDEO", "0") == "1",
+            "reasoning": _parse_reasoning_capability(prefix),
         }
     return tiers
 
@@ -196,6 +268,260 @@ def _build_route_map(tiers: dict[str, dict]) -> dict[str, str]:
     # Route class R0..R(n-1) -> c0..c(n-1), one tier per route class.
     ordered = sorted(tiers.keys(), key=lambda t: int(t[1:]))
     return {f"R{i}": tier for i, tier in enumerate(ordered)}
+
+
+# ---------------------------------------------------------------------------
+# Reasoning merge helpers
+# ---------------------------------------------------------------------------
+def _thinking_effort_map() -> dict[str, str]:
+    """T0-T3 -> effort, overridable via THINKING_T<N>_EFFORT."""
+    out = dict(_DEFAULT_THINKING_EFFORT)
+    for mode, default in _DEFAULT_THINKING_EFFORT.items():
+        val = os.environ.get(f"THINKING_{mode}_EFFORT", "").strip().lower()
+        if val in _EFFORT_RANK:
+            out[mode] = val
+    return out
+
+
+def _read_reasoning_intent(body: dict, inbound_fmt: str) -> dict:
+    """Extract the agent's requested reasoning intent in IR-ish terms.
+
+    Handles the three ingress dialects.  Unknown/absent -> {} (no intent).
+    Values are NOT validated here; the tier capability clamps them later.
+    """
+    intent: dict[str, Any] = {}
+
+    def _mode_from_type(val: Any) -> str | None:
+        if not isinstance(val, str):
+            return None
+        low = val.strip().lower()
+        return {
+            "auto": "auto",
+            "adaptive": "auto",
+            "enabled": "enabled",
+            "disabled": "disabled",
+            "none": "disabled",
+        }.get(low)
+
+    if inbound_fmt == "anthropic":
+        thinking = body.get("thinking")
+        if isinstance(thinking, dict):
+            mode = _mode_from_type(thinking.get("type"))
+            if mode:
+                intent["mode"] = mode
+            budget = thinking.get("budget_tokens")
+            if isinstance(budget, int) and budget > 0:
+                intent["budget_tokens"] = budget
+        output_config = body.get("output_config")
+        if isinstance(output_config, dict):
+            effort = str(output_config.get("effort") or "").strip().lower()
+            if effort in _EFFORT_RANK or effort == "none":
+                intent["effort"] = effort
+    else:
+        # OpenAI Chat / Responses
+        effort = body.get("reasoning_effort")
+        if isinstance(effort, str):
+            val = effort.strip().lower()
+            if val in _EFFORT_RANK or val == "none":
+                intent["effort"] = val
+        reasoning = body.get("reasoning")
+        if isinstance(reasoning, dict):
+            r_effort = str(reasoning.get("effort") or "").strip().lower()
+            if r_effort in _EFFORT_RANK or r_effort == "none":
+                intent["effort"] = r_effort
+            mode = _mode_from_type(reasoning.get("type"))
+            if mode:
+                intent.setdefault("mode", mode)
+        thinking = body.get("thinking")
+        if isinstance(thinking, dict):
+            mode = _mode_from_type(thinking.get("type"))
+            if mode:
+                intent.setdefault("mode", mode)
+            budget = thinking.get("budget_tokens")
+            if isinstance(budget, int) and budget > 0:
+                intent.setdefault("budget_tokens", budget)
+
+    # Normalise "none" -> mode=disabled (llm-rosetta does the same).
+    if intent.get("effort") == "none":
+        intent.pop("effort", None)
+        intent["mode"] = "disabled"
+    return intent
+
+
+def _clamp_effort(effort: str, cap: dict) -> tuple[str, bool]:
+    """Clamp an effort level into the tier's declared range."""
+    rank = _EFFORT_RANK.get(effort)
+    if rank is None:
+        return effort, False
+    lo = _EFFORT_RANK.get(cap.get("effort_min") or "", 0)
+    hi = _EFFORT_RANK.get(cap.get("effort_max") or "", len(_EFFORT_LADDER) - 1)
+    clamped_rank = max(lo, min(hi, rank))
+    return _EFFORT_LADDER[clamped_rank], clamped_rank != rank
+
+
+def _merge_reasoning(
+    intent: dict,
+    cap: dict | None,
+    thinking_mode: str | None,
+    max_tokens: int | None,
+) -> tuple[dict, dict]:
+    """Resolve the final reasoning config for ONE candidate tier.
+
+    Returns (effective, meta):
+      effective = {"mode"?: str, "effort"?: str, "budget_tokens"?: int}
+      meta      = {"source", "requested", "effective", "clamped", "dropped_reason"}
+    """
+    meta: dict[str, Any] = {
+        "source": "none",
+        "requested": thinking_mode,
+        "effective": None,
+        "clamped": False,
+        "dropped_reason": None,
+    }
+
+    if not ROUTER_REASONING_ENABLED:
+        meta["dropped_reason"] = "global_off"
+        return {}, meta
+
+    if cap is None:
+        meta["dropped_reason"] = "unsupported_model"
+        return {}, meta
+
+    effective: dict[str, Any] = {}
+
+    use_agent = bool(intent) and ROUTER_REASONING_PRIORITY == "agent"
+    if use_agent:
+        effective.update(intent)
+        meta["source"] = "agent"
+    else:
+        effort = _thinking_effort_map().get(str(thinking_mode or ""), "")
+        if effort:
+            effective["effort"] = effort
+            meta["source"] = "router" if thinking_mode else "none"
+
+    if not effective:
+        return {}, meta
+
+    # 1) mode filtering
+    modes = cap.get("modes") or []
+    mode = effective.get("mode")
+    if mode and mode not in modes:
+        if mode == "disabled":
+            # The model cannot be switched off: send nothing at all rather
+            # than an invalid "disabled" value.
+            meta["dropped_reason"] = "disabled_not_allowed"
+            return {}, meta
+        effective["mode"] = cap.get("default_mode") or "auto"
+
+    # 2) effort clamping
+    effort = effective.get("effort")
+    if effort:
+        new_effort, clamped = _clamp_effort(effort, cap)
+        effective["effort"] = new_effort
+        if clamped:
+            meta["clamped"] = True
+
+    # 3) budget constraints
+    limit = (max_tokens - 1) if isinstance(max_tokens, int) and max_tokens > 0 else None
+    budget = effective.get("budget_tokens")
+    if isinstance(budget, int) and budget > 0:
+        if limit is not None:
+            effective["budget_tokens"] = min(budget, limit)
+        elif max_tokens is not None:
+            effective.pop("budget_tokens", None)
+    elif cap.get("budget_ratio") and limit is not None:
+        derived = max(1024, int(max_tokens * float(cap["budget_ratio"])))
+        effective["budget_tokens"] = min(derived, limit)
+
+    if not effective:
+        return {}, meta
+
+    meta["effective"] = dict(effective)
+    return effective, meta
+
+
+def _inject_reasoning(body: dict, inbound_fmt: str, effective: dict) -> dict:
+    """Write an effective reasoning config into the request in the *agent's*
+    native dialect, so llm-rosetta can translate it to the backend's dialect."""
+    if not effective:
+        return body
+
+    mode = effective.get("mode")
+    effort = effective.get("effort")
+    budget = effective.get("budget_tokens")
+
+    if inbound_fmt == "anthropic":
+        thinking = dict(body.get("thinking") or {})
+        if mode:
+            thinking["type"] = {"auto": "adaptive", "enabled": "enabled",
+                                "disabled": "disabled"}[mode]
+        if budget:
+            thinking["budget_tokens"] = budget
+        if thinking:
+            body["thinking"] = thinking
+        if effort:
+            cfg = dict(body.get("output_config") or {})
+            cfg["effort"] = effort
+            body["output_config"] = cfg
+        return body
+
+    if inbound_fmt == "openai_responses":
+        reasoning = dict(body.get("reasoning") or {})
+        if effort:
+            reasoning["effort"] = effort
+        if mode:
+            reasoning["type"] = "enabled" if mode == "auto" else mode
+        if reasoning:
+            body["reasoning"] = reasoning
+        return body
+
+    # OpenAI Chat
+    if effort:
+        body["reasoning_effort"] = effort
+    elif mode == "disabled":
+        body["reasoning_effort"] = "none"
+    if budget:
+        body["thinking"] = {"type": "enabled", "budget_tokens": budget}
+    return body
+
+
+def _strip_reasoning(body: dict, inbound_fmt: str) -> dict:
+    """Remove ALL reasoning fields from the request.
+
+    Used when reasoning routing is enabled but the chosen model cannot honour
+    the request (no declared capability, or it cannot be switched off).  Any
+    leftover field (including one supplied by the agent itself) would be
+    forwarded verbatim and could make the backend return 400.
+    """
+    for key in ("reasoning_effort",):
+        body.pop(key, None)
+
+    reasoning = body.get("reasoning")
+    if isinstance(reasoning, dict):
+        for key in ("effort", "type", "summary"):
+            reasoning.pop(key, None)
+        if reasoning:
+            body["reasoning"] = reasoning
+        else:
+            body.pop("reasoning", None)
+
+    thinking = body.get("thinking")
+    if isinstance(thinking, dict):
+        for key in ("type", "budget_tokens"):
+            thinking.pop(key, None)
+        if thinking:
+            body["thinking"] = thinking
+        else:
+            body.pop("thinking", None)
+
+    output_config = body.get("output_config")
+    if isinstance(output_config, dict):
+        output_config.pop("effort", None)
+        if output_config:
+            body["output_config"] = output_config
+        else:
+            body.pop("output_config", None)
+    return body
 
 
 PROVIDERS = _discover_providers()
@@ -223,6 +549,7 @@ def _reload_config() -> bool:
     """Re-read .env and rebuild the provider/tier tables.  Returns True."""
     global PROVIDERS, TIERS, ROUTE_CLASS_TO_TIER
     global ROUTER_API_KEY, BACKEND_TIMEOUT, BACKEND_CONNECT_TIMEOUT
+    global ROUTER_REASONING_ENABLED, ROUTER_REASONING_PRIORITY
     global VISION_MODEL, VISION_BASE_URL, VISION_API_KEY, _config_mtime
 
     # override=True so edited values win over the values loaded at import.
@@ -235,6 +562,10 @@ def _reload_config() -> bool:
     ROUTER_API_KEY = os.environ.get("ROUTER_API_KEY", "")
     BACKEND_TIMEOUT = float(os.environ.get("BACKEND_TIMEOUT", "300"))
     BACKEND_CONNECT_TIMEOUT = float(os.environ.get("BACKEND_CONNECT_TIMEOUT", "30"))
+    ROUTER_REASONING_ENABLED = os.environ.get("ROUTER_REASONING_ENABLED", "0") == "1"
+    ROUTER_REASONING_PRIORITY = (
+        os.environ.get("ROUTER_REASONING_PRIORITY", "agent").strip().lower() or "agent"
+    )
     VISION_MODEL = os.environ.get("VISION_MODEL", "GLM-5.3-Flash")
     VISION_BASE_URL = os.environ.get("VISION_BASE_URL", os.environ.get("BACKEND_BASE_URL", ""))
     VISION_API_KEY = os.environ.get("VISION_API_KEY", os.environ.get("BACKEND_API_KEY", ""))
@@ -423,6 +754,7 @@ async def _call_backend(
     inbound_fmt: str = "openai_chat",
     vision: bool = False,
     video: bool = False,
+    thinking_mode: str | None = None,
     fallback_backends: list[dict[str, str]] | None = None,
     fallback_route_classes: list[str] | None = None,
 ):
@@ -438,6 +770,13 @@ async def _call_backend(
     is_stream = bool(body.get("stream", False))
 
     attempts: list[str] = []
+
+    # Agent-expressed reasoning intent (if any); resolved per candidate below
+    # because each model has its own declared capability/range.
+    agent_reasoning = _read_reasoning_intent(body, inbound_fmt)
+    body_max_tokens = body.get("max_tokens") or body.get("max_output_tokens")
+    if not isinstance(body_max_tokens, int):
+        body_max_tokens = None
 
     candidates: list[tuple[dict[str, str], str]] = [(backend, route_class)]
     for fb, frc in zip(fallback_backends or [], fallback_route_classes or []):
@@ -466,6 +805,20 @@ async def _call_backend(
             # would send the wrong model name (e.g. deepseek-flash to
             # starfire's /responses -> 404).
             outbound_body = dict(body)
+            reasoning_eff, reasoning_meta = _merge_reasoning(
+                agent_reasoning,
+                cand_backend.get("reasoning"),
+                thinking_mode,
+                body_max_tokens,
+            )
+            if reasoning_eff:
+                outbound_body = _inject_reasoning(outbound_body, inbound_fmt, reasoning_eff)
+            elif ROUTER_REASONING_ENABLED:
+                # Routing is on but this model cannot honour the request
+                # (unsupported, or cannot be disabled): strip any reasoning
+                # field -- including one the agent supplied -- so it is never
+                # forwarded to a backend that does not understand it.
+                outbound_body = _strip_reasoning(outbound_body, inbound_fmt)
             outbound_body["model"] = cand_backend["model"]
             _conv_used = False
             if can_convert and inbound_fmt != outbound_fmt:
@@ -474,6 +827,23 @@ async def _call_backend(
                     _conv_used = True
                 except Exception:
                     outbound_body = body
+
+            # Log AFTER conversion so `sent` shows what the backend really gets.
+            if reasoning_meta.get("effective") or reasoning_meta.get("dropped_reason"):
+                print(
+                    f"[REASONING] tier={cand_route} model={cand_backend.get('model', '')} "
+                    f"fmt={outbound_fmt} src={reasoning_meta.get('source')} "
+                    f"requested={reasoning_meta.get('requested')} "
+                    f"-> {reasoning_meta.get('effective')} "
+                    f"clamped={reasoning_meta.get('clamped')} "
+                    f"dropped={reasoning_meta.get('dropped_reason')} "
+                    f"sent=" + str({
+                        k: outbound_body.get(k) for k in
+                        ("reasoning_effort", "reasoning", "thinking", "output_config")
+                        if outbound_body.get(k) is not None
+                    }),
+                    flush=True,
+                )
 
             if is_stream:
                 # Pre-read the upstream stream: some backends (e.g. starfire
@@ -595,6 +965,10 @@ async def _call_backend(
                         "X-Router-Tier": cand_route,
                         "X-Router-Model": cand_backend["model"],
                         "X-Router-Converted": "1" if _conv_used else "0",
+                        "X-Router-Reasoning": (
+                            f"{reasoning_meta.get('source')}:"
+                            f"{(reasoning_meta.get('effective') or {}).get('effort') or '-'}"
+                        ),
                     },
                 )
 
@@ -629,6 +1003,7 @@ async def _call_backend(
                     "endpoint": outbound_path,
                     "outbound_format": outbound_fmt,
                     "converted": _conv_used and inbound_fmt != outbound_fmt,
+                    "reasoning": reasoning_meta,
                     "attempts": attempts,
                     "fallback_used": idx > 0,
                 }
@@ -928,6 +1303,7 @@ def _get_backend(route_class: str) -> dict[str, str]:
             "base_url": p.get("base_url", ""),
             "format": fmt,
             "provider": provider,
+            "reasoning": cfg.get("reasoning"),
         }
 
     tier = route_class if route_class in TIERS else ROUTE_CLASS_TO_TIER.get(route_class, "c1")
@@ -966,6 +1342,7 @@ async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)
         body["model"] = backend["model"]
         chain = _fallback_chain(route_class, route_info, vision=True)
         return await _call_backend(body, backend, route_class, inbound_fmt="openai_chat", vision=True, video=has_video,
+                                   thinking_mode=route_info.get("thinking_mode"),
                                    fallback_backends=[b for b, _ in chain[1:]],
                                    fallback_route_classes=[r for _, r in chain[1:]])
 
@@ -976,6 +1353,7 @@ async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)
     chain = _fallback_chain(route_class, route_info)
     resp = await _call_backend(
         body, backend, route_class, inbound_fmt="openai_chat",
+        thinking_mode=route_info.get("thinking_mode"),
         fallback_backends=[b for b, _ in chain[1:]],
         fallback_route_classes=[r for _, r in chain[1:]],
     )
@@ -1053,6 +1431,7 @@ async def responses_endpoint(request: Request, _auth: bool = Depends(_verify_aut
         body["model"] = backend["model"]
         chain = _fallback_chain(route_class, route_info, vision=True)
         return await _call_backend(body, backend, route_class, inbound_fmt="openai_responses", vision=True, video=has_video,
+                                   thinking_mode=route_info.get("thinking_mode"),
                                    fallback_backends=[b for b, _ in chain[1:]],
                                    fallback_route_classes=[r for _, r in chain[1:]])
 
@@ -1063,6 +1442,7 @@ async def responses_endpoint(request: Request, _auth: bool = Depends(_verify_aut
     chain = _fallback_chain(route_class, route_info)
     return await _call_backend(
         body, backend, route_class, inbound_fmt="openai_responses",
+        thinking_mode=route_info.get("thinking_mode"),
         fallback_backends=[b for b, _ in chain[1:]],
         fallback_route_classes=[r for _, r in chain[1:]],
     )
@@ -1090,6 +1470,7 @@ async def anthropic_messages(request: Request, _auth: bool = Depends(_verify_aut
         body["model"] = backend["model"]
         chain = _fallback_chain(route_class, route_info, vision=True)
         return await _call_backend(body, backend, route_class, inbound_fmt="anthropic", vision=True, video=has_video,
+                                   thinking_mode=route_info.get("thinking_mode"),
                                    fallback_backends=[b for b, _ in chain[1:]],
                                    fallback_route_classes=[r for _, r in chain[1:]])
 
@@ -1100,6 +1481,7 @@ async def anthropic_messages(request: Request, _auth: bool = Depends(_verify_aut
     chain = _fallback_chain(route_class, route_info)
     return await _call_backend(
         body, backend, route_class, inbound_fmt="anthropic",
+        thinking_mode=route_info.get("thinking_mode"),
         fallback_backends=[b for b, _ in chain[1:]],
         fallback_route_classes=[r for _, r in chain[1:]],
     )
@@ -1169,10 +1551,16 @@ async def router_status():
             "base_url": provider.get("base_url", ""),
             "supports_image": cfg.get("supports_image", False),
             "supports_video": cfg.get("supports_video", False),
+            "reasoning": cfg.get("reasoning"),
             "configured": bool(cfg.get("model") and provider.get("api_key")),
         }
     return {
         "ml_ready": _core is not None,
+        "reasoning_routing": {
+            "enabled": ROUTER_REASONING_ENABLED,
+            "priority": ROUTER_REASONING_PRIORITY,
+            "thinking_effort_map": _thinking_effort_map(),
+        },
         "providers": {name: {"base_url": p.get("base_url",""), "configured": bool(p.get("api_key"))} for name, p in PROVIDERS.items()},
         "tiers": tiers_out,
         "route_class_to_tier": ROUTE_CLASS_TO_TIER,

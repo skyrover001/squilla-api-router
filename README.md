@@ -239,6 +239,86 @@ C2_MODEL=deepseek-chat
 - 任何 `C<数字>_MODEL` 按数字排序自动生成档位 `c0..cN`（数量不限）
 - `C<N>_PROVIDER` 默认 `tianhe`（`BACKEND_*` 前缀即该 provider 的别名）
 
+## 思维强度路由（可选）
+
+Router 的 ML 分类器本身就会给出一个思维档（`T0`–`T3`）。
+默认情况下它只写入 `_router` 元数据；开启后会按**选中模型自己声明的能力**转成
+各家原生写法并下发。
+
+**默认关闭**，不配置就与以前行为完全一致。
+
+```env
+ROUTER_REASONING_ENABLED=1
+ROUTER_REASONING_PRIORITY=agent   # agent（默认，agent 显式指定优先）| router
+
+# T0-T3 -> effort（可覆盖）
+THINKING_T0_EFFORT=minimal
+THINKING_T1_EFFORT=low
+THINKING_T2_EFFORT=medium
+THINKING_T3_EFFORT=high
+
+# 每个 tier 声明自己的能力；不写 = 不支持思维控制（不下发任何参数）
+C1_REASONING_MODES=auto,enabled,disabled
+C1_REASONING_EFFORT_MIN=low
+C1_REASONING_EFFORT_MAX=high
+C1_REASONING_DEFAULT_MODE=auto
+
+# 关不掉思考的模型（如 deepseek-flash）：不要写 disabled
+C3_REASONING_MODES=auto,enabled
+C3_REASONING_EFFORT_MIN=low
+C3_REASONING_EFFORT_MAX=max
+C3_REASONING_BUDGET_RATIO=0.5
+```
+
+### 规则
+
+| 项 | 行为 |
+|---|---|
+| 模型未声明 `REASONING_MODES` | 整段思维参数剥离，不下发 |
+| agent 显式传了 `reasoning_effort` / `thinking` | 优先采用（`PRIORITY=agent`），再按该模型区间 clamp |
+| agent 未传 | 用分类器的 T0–T3 映射成 effort |
+| effort 超出模型区间 | 自动 clamp 到边界，`_router.reasoning.clamped=true` |
+| 请求 `disabled` 但模型关不掉 | 不传任何为空值，`dropped_reason=disabled_not_allowed` |
+| 降级到另一个模型 | 用新模型的能力重算，不复用上一个模型的字段 |
+
+### 各协议的原生写法（由 llm-rosetta 自动转换）
+
+| 本项目的 effort | OpenAI Chat | OpenAI Responses | Anthropic |
+|---|---|---|---|
+| `low`/`medium`/`high` | `reasoning_effort` | `reasoning.effort` | `output_config.effort` |
+| `mode: enabled` | — | `reasoning.type=single` | `thinking.type=enabled` |
+| `mode: disabled` | `reasoning_effort=none` | `reasoning.type=disabled` | `thinking.type=disabled` |
+| `mode: auto` | — | 模型自决 | `thinking.type=adaptive` |
+| `budget_tokens` | — | — | `thinking.budget_tokens` |
+
+### 可观测性
+
+响应的 `_router` 会带上实际生效情况：
+
+```json
+"_router": {
+  "tier": "c1",
+  "model": "GLM-5.3-Flash",
+  "reasoning": {
+    "source": "router",
+    "requested": "T2",
+    "effective": {"effort": "medium"},
+    "clamped": false,
+    "dropped_reason": null
+  }
+}
+```
+
+`source`：`agent` / `router` / `none`。
+`dropped_reason`：`unsupported_model` / `disabled_not_allowed` / `global_off`。
+流式响应带 `X-Router-Reasoning` 响应头。
+服务端日志会打一行 `[REASONING] ... sent={...}`，显示最终发给后端的字段。
+
+### 热加载
+
+改完 `.env` 保存即可（配置热加载），也可 `POST /admin/reload-config` 强制重载，
+无需重启。
+
 ## 多模态图片/视频路由
 
 当请求包含图片或视频时，Router 会**先按配置筛选支持图片/视频的档位**，
