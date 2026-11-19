@@ -31,6 +31,8 @@ routing metadata only; prompts and tool definitions remain unchanged.
 
 Malformed provider tool calls are detected after completion and stored as a
 pending `redo` for the same session. The next request consumes that signal.
+Consecutive identical tool-call signatures are counted per session; reaching
+`ROUTER_REPEAT_TOOL_CALL_THRESHOLD` also produces a pending `redo`.
 
 Automatic detection uses:
 

@@ -194,6 +194,13 @@ Router 还会检查 provider 返回的 tool call 结构。若 tool name 缺失�
 不是合法 JSON object 或 Anthropic tool input 非法，会为当前 Session 标记一次
 自动 Redo，在下一轮请求中提升质量层。该检查不修改当前响应。
 
+连续相同 tool name + arguments 达到阈值时，也会判定为“重复 tool call 无进展”，
+默认阈值为 3：
+
+```env
+ROUTER_REPEAT_TOOL_CALL_THRESHOLD=3
+```
+
 ### OpenCode 多轮工具 A/B（P1）
 
 同一任务分别使用 `router/router` 和固定

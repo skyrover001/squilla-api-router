@@ -58,6 +58,7 @@ from squilla_api_router.cost_policy import (
 from squilla_api_router.quality_signals import (
     StreamToolCallTracker,
     response_quality_failure,
+    response_tool_signature,
 )
 
 from squilla_api_router.final_policy import apply_final_policy
@@ -922,6 +923,7 @@ async def _call_backend(
     usage_callback: Callable[[dict[str, Any]], None] | None = None,
     attempt_callback: Callable[[dict[str, Any]], None] | None = None,
     quality_callback: Callable[[str], None] | None = None,
+    repeat_callback: Callable[[str], None] | None = None,
 ):
     from squilla_api_router._formats_rosetta import (
         FORMAT_TO_PATH,
@@ -1184,10 +1186,12 @@ async def _call_backend(
                         flush=True,
                     )
                     report_attempt(True, 200, "")
+                    quality_reason = tool_tracker.failure_reason()
                     if quality_callback:
-                        quality_reason = tool_tracker.failure_reason()
                         if quality_reason:
                             quality_callback(quality_reason)
+                    if repeat_callback and not quality_reason:
+                        repeat_callback(tool_tracker.signature())
                     if usage_callback:
                         try:
                             usage_callback(
@@ -1613,12 +1617,15 @@ async def _call_backend(
                             "latency_s": time.monotonic() - request_started,
                         }
                     )
+                quality_reason = None
                 if quality_callback:
                     quality_reason = response_quality_failure(
                         out_resp, inbound_fmt
                     )
                     if quality_reason:
                         quality_callback(quality_reason)
+                if repeat_callback and not quality_reason:
+                    repeat_callback(response_tool_signature(out_resp, inbound_fmt))
                 return JSONResponse(content=out_resp, status_code=status)
         except Exception as exc:
             logger.exception("candidate %s raised exception", cand_route)
@@ -2480,6 +2487,27 @@ def _quality_callback_for(plan: SessionRoutePlan) -> Callable[[str], None]:
     return callback
 
 
+def _repeat_callback_for(plan: SessionRoutePlan) -> Callable[[str], None]:
+    threshold = int(os.environ.get("ROUTER_REPEAT_TOOL_CALL_THRESHOLD", "3"))
+
+    def callback(signature: str) -> None:
+        store = _routing_state_store()
+        if store is None:
+            return
+        try:
+            count = store.record_tool_signature(plan.identity.session_id, signature)
+            if signature and threshold > 0 and count >= threshold:
+                store.mark_forced_intent(
+                    plan.identity.session_id,
+                    "redo",
+                    f"repeated_tool_call_no_progress:{count}",
+                )
+        except Exception as exc:
+            logger.warning("failed to track repeated tool calls: %s", exc)
+
+    return callback
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)):
     """OpenAI Chat Completions: classify, pick model, replace model, forward raw to /chat/completions."""
@@ -2519,6 +2547,7 @@ async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)
             usage_callback=_usage_callback_for(plan),
             attempt_callback=_attempt_callback_for(plan),
             quality_callback=_quality_callback_for(plan),
+            repeat_callback=_repeat_callback_for(plan),
         )
         _record_session_route(plan, result)
         _attach_session_headers(result, plan)
@@ -2538,6 +2567,7 @@ async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)
         usage_callback=_usage_callback_for(plan),
         attempt_callback=_attempt_callback_for(plan),
         quality_callback=_quality_callback_for(plan),
+        repeat_callback=_repeat_callback_for(plan),
     )
     _record_session_route(plan, resp)
     _attach_session_headers(resp, plan)
@@ -2632,6 +2662,7 @@ async def responses_endpoint(request: Request, _auth: bool = Depends(_verify_aut
             usage_callback=_usage_callback_for(plan),
             attempt_callback=_attempt_callback_for(plan),
             quality_callback=_quality_callback_for(plan),
+            repeat_callback=_repeat_callback_for(plan),
         )
         _record_session_route(plan, result)
         _attach_session_headers(result, plan)
@@ -2651,6 +2682,7 @@ async def responses_endpoint(request: Request, _auth: bool = Depends(_verify_aut
         usage_callback=_usage_callback_for(plan),
         attempt_callback=_attempt_callback_for(plan),
         quality_callback=_quality_callback_for(plan),
+        repeat_callback=_repeat_callback_for(plan),
     )
     _record_session_route(plan, result)
     _attach_session_headers(result, plan)
@@ -2691,6 +2723,7 @@ async def anthropic_messages(request: Request, _auth: bool = Depends(_verify_aut
             usage_callback=_usage_callback_for(plan),
             attempt_callback=_attempt_callback_for(plan),
             quality_callback=_quality_callback_for(plan),
+            repeat_callback=_repeat_callback_for(plan),
         )
         _record_session_route(plan, result)
         _attach_session_headers(result, plan)
@@ -2710,6 +2743,7 @@ async def anthropic_messages(request: Request, _auth: bool = Depends(_verify_aut
         usage_callback=_usage_callback_for(plan),
         attempt_callback=_attempt_callback_for(plan),
         quality_callback=_quality_callback_for(plan),
+        repeat_callback=_repeat_callback_for(plan),
     )
     _record_session_route(plan, result)
     _attach_session_headers(result, plan)

@@ -310,3 +310,29 @@ def test_state_revision_conflict_and_ttl() -> None:
     finally:
         path.unlink(missing_ok=True)
 
+
+def test_repeated_tool_signature_counter() -> None:
+    store, path = _new_store()
+    try:
+        identity = _identity()
+        store.put(
+            identity,
+            task_id="task-1",
+            task_anchor="anchor",
+            tier="c0",
+            route_class="R0",
+            model="m0",
+            provider="p",
+            api_format="openai_chat",
+            base_url="u",
+            thinking_mode="T0",
+            prompt_policy="P0",
+        )
+        signature = '[["read","{\\"path\\":\\"a.py\\"}"]]'
+        assert store.record_tool_signature(identity.session_id, signature) == 1
+        assert store.record_tool_signature(identity.session_id, signature) == 2
+        assert store.record_tool_signature(identity.session_id, signature) == 3
+        assert store.record_tool_signature(identity.session_id, "") == 0
+    finally:
+        path.unlink(missing_ok=True)
+

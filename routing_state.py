@@ -158,6 +158,8 @@ class RouteState:
     prompt_policy: str
     forced_intent: str
     forced_reason: str
+    last_tool_signature: str
+    repeated_tool_count: int
     revision: int
     turn_count: int
     updated_at: float
@@ -404,6 +406,8 @@ class RoutingStateStore:
                     prompt_policy TEXT NOT NULL,
                     forced_intent TEXT NOT NULL DEFAULT '',
                     forced_reason TEXT NOT NULL DEFAULT '',
+                    last_tool_signature TEXT NOT NULL DEFAULT '',
+                    repeated_tool_count INTEGER NOT NULL DEFAULT 0,
                     revision INTEGER NOT NULL DEFAULT 1,
                     turn_count INTEGER NOT NULL,
                     updated_at REAL NOT NULL
@@ -427,6 +431,14 @@ class RoutingStateStore:
             if "revision" not in state_columns:
                 connection.execute(
                     "ALTER TABLE routing_state ADD COLUMN revision INTEGER NOT NULL DEFAULT 1"
+                )
+            if "last_tool_signature" not in state_columns:
+                connection.execute(
+                    "ALTER TABLE routing_state ADD COLUMN last_tool_signature TEXT NOT NULL DEFAULT ''"
+                )
+            if "repeated_tool_count" not in state_columns:
+                connection.execute(
+                    "ALTER TABLE routing_state ADD COLUMN repeated_tool_count INTEGER NOT NULL DEFAULT 0"
                 )
             if self.ttl_seconds:
                 connection.execute(
@@ -628,6 +640,16 @@ class RoutingStateStore:
             prompt_policy=prompt_policy,
             forced_intent=previous.forced_intent if previous else "",
             forced_reason=previous.forced_reason if previous else "",
+            last_tool_signature=(
+                previous.last_tool_signature
+                if previous and previous.task_id == task_id
+                else ""
+            ),
+            repeated_tool_count=(
+                previous.repeated_tool_count
+                if previous and previous.task_id == task_id
+                else 0
+            ),
             revision=revision,
             turn_count=turn_count,
             updated_at=updated_at,
@@ -669,6 +691,41 @@ class RoutingStateStore:
                 tuple(args),
             )
         return cursor.rowcount > 0
+
+    def record_tool_signature(self, session_id: str, signature: str) -> int:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                "SELECT last_tool_signature, repeated_tool_count FROM routing_state WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                return 0
+            if not signature:
+                connection.execute(
+                    """
+                    UPDATE routing_state
+                    SET last_tool_signature = '', repeated_tool_count = 0,
+                        revision = revision + 1, updated_at = ?
+                    WHERE session_id = ?
+                    """,
+                    (time.time(), session_id),
+                )
+                return 0
+            count = (
+                int(row["repeated_tool_count"]) + 1
+                if row["last_tool_signature"] == signature
+                else 1
+            )
+            connection.execute(
+                """
+                UPDATE routing_state
+                SET last_tool_signature = ?, repeated_tool_count = ?,
+                    revision = revision + 1, updated_at = ?
+                WHERE session_id = ?
+                """,
+                (signature, count, time.time(), session_id),
+            )
+        return count
     def record_call(
         self,
         *,

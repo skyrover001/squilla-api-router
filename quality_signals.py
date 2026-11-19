@@ -47,6 +47,41 @@ def response_quality_failure(result: dict[str, Any], fmt: str) -> str | None:
     return None
 
 
+def response_tool_signature(result: dict[str, Any], fmt: str) -> str:
+    calls: list[tuple[str, str]] = []
+    if fmt == "openai_chat":
+        message = (result.get("choices") or [{}])[0].get("message") or {}
+        for call in message.get("tool_calls") or []:
+            function = call.get("function") or {}
+            calls.append(
+                (
+                    str(function.get("name") or ""),
+                    str(function.get("arguments") or ""),
+                )
+            )
+    elif fmt == "openai_responses":
+        for item in result.get("output") or []:
+            if item.get("type") == "function_call":
+                calls.append(
+                    (
+                        str(item.get("name") or ""),
+                        str(item.get("arguments") or ""),
+                    )
+                )
+    elif fmt == "anthropic":
+        for block in result.get("content") or []:
+            if block.get("type") == "tool_use":
+                calls.append(
+                    (
+                        str(block.get("name") or ""),
+                        json.dumps(block.get("input") or {}, sort_keys=True, ensure_ascii=False),
+                    )
+                )
+    if not calls:
+        return ""
+    return json.dumps(sorted(calls), ensure_ascii=False, separators=(",", ":"))
+
+
 @dataclass
 class StreamingToolCall:
     name: str = ""
@@ -95,3 +130,12 @@ class StreamToolCallTracker:
             if _invalid_arguments(call.arguments):
                 return "tool_call_invalid_json"
         return None
+
+    def signature(self) -> str:
+        calls = sorted(
+            (call.name, call.arguments) for call in self._calls.values()
+            if call.name
+        )
+        if not calls:
+            return ""
+        return json.dumps(calls, ensure_ascii=False, separators=(",", ":"))

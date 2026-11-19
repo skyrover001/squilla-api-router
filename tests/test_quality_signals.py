@@ -112,3 +112,27 @@ def test_anthropic_tool_input_accepts_dict() -> None:
         ]
     }
     assert response_quality_failure(result, "anthropic") is None
+
+
+def test_stream_signature_is_stable_for_same_call() -> None:
+    tracker = StreamToolCallTracker()
+    event = {
+        "choices": [
+            {
+                "delta": {
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "function": {
+                                "name": "read",
+                                "arguments": '{"path":"a.py"}',
+                            },
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+    tracker.feed(event)
+    assert tracker.signature() == tracker.signature()
+    assert "read" in tracker.signature()
