@@ -22,8 +22,11 @@ from __future__ import annotations
 
 import os
 import logging
+import logging.handlers
 import asyncio
 import json
+import re
+import secrets
 import time
 
 from pathlib import Path
@@ -82,8 +85,72 @@ app = FastAPI(title="Squilla API Router", version="0.1.0", docs_url=None)
 logger = logging.getLogger("squilla.router")
 
 
+def _configure_router_logging(
+    *,
+    force: bool = False,
+) -> logging.handlers.RotatingFileHandler | None:
+    """Configure a size-rotated application log file.
+
+    ``_run_server.py`` can install the same handler as part of uvicorn's logging
+    configuration.  ``force`` is used by tests to replace that handler.
+    """
+    if os.environ.get("ROUTER_LOG_ENABLED", "1") != "1":
+        return None
+    existing = next(
+        (
+            handler
+            for handler in logger.handlers
+            if getattr(handler, "_squilla_router_file", False)
+        ),
+        None,
+    )
+    if existing is not None and not force:
+        return existing
+    if force:
+        for handler in list(logger.handlers):
+            if getattr(handler, "_squilla_router_file", False):
+                logger.removeHandler(handler)
+                handler.close()
+
+    log_file = Path(
+        os.environ.get(
+            "ROUTER_LOG_FILE",
+            str(Path.cwd() / "squilla_router.log"),
+        )
+    )
+    max_bytes = max(1024, int(os.environ.get("ROUTER_LOG_MAX_BYTES", "20971520")))
+    backup_count = max(1, int(os.environ.get("ROUTER_LOG_BACKUP_COUNT", "5")))
+    try:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.handlers.RotatingFileHandler(
+            log_file,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        logger.warning("file logging unavailable: %s", exc)
+        return None
+    handler.setFormatter(
+        logging.Formatter(
+            "timestamp=%(asctime)s level=%(levelname)s logger=%(name)s %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S%z",
+        )
+    )
+    handler._squilla_router_file = True  # type: ignore[attr-defined]
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    return handler
+
+
+if os.environ.get("ROUTER_EXTERNAL_LOGGING") != "1":
+    _configure_router_logging()
+
+
 
 ROUTER_API_KEY = os.environ.get("ROUTER_API_KEY", "")
+ROUTER_TENANT_API_KEYS: dict[str, str] = {}
 # Upstream (backend) call timeout, in seconds.
 # Long reasoning generations can easily exceed two minutes, so default is generous.
 # For streaming, bound the time spent waiting for the first content event so a
@@ -157,15 +224,84 @@ ROSETTA_API_KEY = os.environ.get("ROSETTA_API_KEY", "sk-proxy-test")
 _security = HTTPBearer(auto_error=False)
 
 
-def _verify_auth(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(_security)):
+@dataclass(frozen=True)
+class RouterPrincipal:
+    tenant_id: str
+    is_admin: bool
+    auth_kind: str
+
+
+def _secure_key_equal(left: str, right: str) -> bool:
+    if not left or not right:
+        return False
+    return secrets.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
+
+
+def _load_tenant_api_keys(raw: str | None = None) -> dict[str, str]:
+    value = os.environ.get("ROUTER_TENANT_API_KEYS", "") if raw is None else raw
+    if not value.strip():
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        logger.warning("ROUTER_TENANT_API_KEYS is not valid JSON; ignored")
+        return {}
+    if not isinstance(parsed, dict):
+        logger.warning("ROUTER_TENANT_API_KEYS must be a JSON object; ignored")
+        return {}
+    tenants: dict[str, str] = {}
+    seen_keys: set[bytes] = set()
+    for tenant, api_key in parsed.items():
+        tenant_id = str(tenant).strip()
+        key = str(api_key).strip()
+        if not tenant_id or not key:
+            continue
+        if re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", tenant_id) is None:
+            logger.warning("invalid tenant id ignored")
+            continue
+        if ROUTER_API_KEY and _secure_key_equal(key, ROUTER_API_KEY):
+            logger.warning(
+                "tenant key for tenant=%s duplicates the global key; ignored",
+                tenant_id,
+            )
+            continue
+        key_bytes = key.encode("utf-8")
+        if key_bytes in seen_keys:
+            logger.warning("duplicate tenant API key ignored for tenant=%s", tenant_id)
+            continue
+        seen_keys.add(key_bytes)
+        tenants[tenant_id] = key
+    return tenants
+
+
+ROUTER_TENANT_API_KEYS = _load_tenant_api_keys()
+
+
+def _authenticate(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None,
+) -> RouterPrincipal:
     """Verify the caller presents the configured router API key (if set).
 
     Accepts either standard ``Authorization: Bearer <key>`` or the
     Anthropic-style ``x-api-key: <key>`` header, so Claude Code / Anthropic
     SDK can connect to /v1/messages without custom auth plumbing."""
+    requested_tenant = (
+        request.headers.get("x-squilla-tenant-id")
+        or request.headers.get("x-tenant-id")
+        or request.headers.get("x-workspace-id")
+        or ""
+    ).strip()
     if not ROUTER_API_KEY:
-        # No key configured -> allow (open mode)
-        return True
+        # No global key and no tenant keys configured -> open mode.
+        if not ROUTER_TENANT_API_KEYS:
+            principal = RouterPrincipal(
+                tenant_id=requested_tenant,
+                is_admin=True,
+                auth_kind="open",
+            )
+            request.state.router_principal = principal
+            return principal
     provided = ""
     if credentials is not None:
         provided = credentials.credentials or ""
@@ -179,14 +315,58 @@ def _verify_auth(request: Request, credentials: HTTPAuthorizationCredentials | N
             detail="Missing authorization header",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    if provided != ROUTER_API_KEY:
-        from fastapi import HTTPException, status as http_status
-        raise HTTPException(
-            status_code=http_status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid router API key",
-            headers={"WWW-Authenticate": "Bearer"},
+    if ROUTER_API_KEY and _secure_key_equal(provided, ROUTER_API_KEY):
+        principal = RouterPrincipal(
+            tenant_id=requested_tenant,
+            is_admin=True,
+            auth_kind="global",
         )
-    return True
+        request.state.router_principal = principal
+        return principal
+    for tenant_id, tenant_key in ROUTER_TENANT_API_KEYS.items():
+        if not _secure_key_equal(provided, tenant_key):
+            continue
+        if requested_tenant and requested_tenant != tenant_id:
+            from fastapi import HTTPException, status as http_status
+
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="Tenant API key does not match x-squilla-tenant-id",
+            )
+        principal = RouterPrincipal(
+            tenant_id=tenant_id,
+            is_admin=False,
+            auth_kind="tenant",
+        )
+        request.state.router_principal = principal
+        return principal
+    from fastapi import HTTPException, status as http_status
+
+    raise HTTPException(
+        status_code=http_status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid router API key",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _verify_auth(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(_security),
+) -> RouterPrincipal:
+    return _authenticate(request, credentials)
+
+
+def _verify_admin_auth(
+    principal: RouterPrincipal = Depends(_verify_auth),
+) -> RouterPrincipal:
+    if not principal.is_admin:
+        from fastapi import HTTPException, status as http_status
+
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail="Tenant API keys cannot access admin endpoints",
+        )
+    return principal
 
 
 
@@ -637,7 +817,8 @@ _config_mtime: float | None = None
 def _reload_config() -> bool:
     """Re-read .env and rebuild the provider/tier tables.  Returns True."""
     global PROVIDERS, TIERS, ROUTE_CLASS_TO_TIER
-    global ROUTER_API_KEY, BACKEND_TIMEOUT, BACKEND_CONNECT_TIMEOUT
+    global ROUTER_API_KEY, ROUTER_TENANT_API_KEYS
+    global BACKEND_TIMEOUT, BACKEND_CONNECT_TIMEOUT
     global BACKEND_STREAM_START_TIMEOUT, BACKEND_STREAM_FAST_START_TIMEOUT
     global BACKEND_STREAM_IDLE_TIMEOUT
     global ROUTER_REASONING_ENABLED, ROUTER_REASONING_PRIORITY
@@ -653,6 +834,7 @@ def _reload_config() -> bool:
     ROUTE_CLASS_TO_TIER = _build_route_map(TIERS)
 
     ROUTER_API_KEY = os.environ.get("ROUTER_API_KEY", "")
+    ROUTER_TENANT_API_KEYS = _load_tenant_api_keys()
     BACKEND_TIMEOUT = float(os.environ.get("BACKEND_TIMEOUT", "300"))
     BACKEND_CONNECT_TIMEOUT = float(os.environ.get("BACKEND_CONNECT_TIMEOUT", "30"))
     BACKEND_STREAM_START_TIMEOUT = float(
@@ -970,10 +1152,9 @@ async def _call_backend(
                 if candidate not in healthy
             ]
             candidates = healthy
-            print(
-                "[CIRCUIT] skipping cooldown tiers="
-                + ",".join(skipped_backends),
-                flush=True,
+            logger.warning(
+                "[CIRCUIT] skipping cooldown tiers=%s",
+                ",".join(skipped_backends),
             )
     skipped_header = ",".join(skipped_backends)
 
@@ -995,11 +1176,13 @@ async def _call_backend(
                 outbound_fmt = cand_backend.get("format") or inbound_fmt
                 outbound_path = FORMAT_TO_PATH.get(outbound_fmt, "/chat/completions")
                 url = f"{cand_backend['base_url']}{outbound_path}"
-                print(
-                    f"[ATTEMPT] {idx + 1}/{len(candidates)} tier={cand_route} "
-                    f"model={cand_backend.get('model', '')} fmt={outbound_fmt} "
-                    f"stream=True",
-                    flush=True,
+                logger.info(
+                    "[ATTEMPT] %d/%d tier=%s model=%s fmt=%s stream=True",
+                    idx + 1,
+                    len(candidates),
+                    cand_route,
+                    cand_backend.get("model", ""),
+                    outbound_fmt,
                 )
 
                 outbound_body = dict(body)
@@ -1031,20 +1214,27 @@ async def _call_backend(
                         outbound_body = body
 
                 if reasoning_meta.get("effective") or reasoning_meta.get("dropped_reason"):
-                    print(
-                        f"[REASONING] tier={cand_route} "
-                        f"model={cand_backend.get('model', '')} "
-                        f"fmt={outbound_fmt} src={reasoning_meta.get('source')} "
-                        f"requested={reasoning_meta.get('requested')} "
-                        f"-> {reasoning_meta.get('effective')} "
-                        f"clamped={reasoning_meta.get('clamped')} "
-                        f"dropped={reasoning_meta.get('dropped_reason')} "
-                        f"sent=" + str({
-                            k: outbound_body.get(k) for k in
-                            ("reasoning_effort", "reasoning", "thinking", "output_config")
+                    logger.info(
+                        "[REASONING] tier=%s model=%s fmt=%s src=%s "
+                        "requested=%s -> %s clamped=%s dropped=%s sent=%s",
+                        cand_route,
+                        cand_backend.get("model", ""),
+                        outbound_fmt,
+                        reasoning_meta.get("source"),
+                        reasoning_meta.get("requested"),
+                        reasoning_meta.get("effective"),
+                        reasoning_meta.get("clamped"),
+                        reasoning_meta.get("dropped_reason"),
+                        {
+                            k: outbound_body.get(k)
+                            for k in (
+                                "reasoning_effort",
+                                "reasoning",
+                                "thinking",
+                                "output_config",
+                            )
                             if outbound_body.get(k) is not None
-                        }),
-                        flush=True,
+                        },
                     )
 
                 client = None
@@ -1097,10 +1287,10 @@ async def _call_backend(
                     )
                     if resp.status_code != 200:
                         report_attempt(False, resp.status_code, "http_error")
-                        print(
-                            f"[STREAM] tier={cand_route} HTTP "
-                            f"{resp.status_code}; falling back",
-                            flush=True,
+                        logger.warning(
+                            "[STREAM] tier=%s HTTP %s; falling back",
+                            cand_route,
+                            resp.status_code,
                         )
                         continue
 
@@ -1180,10 +1370,9 @@ async def _call_backend(
 
                     if not saw_done:
                         await queue.put(("chunk", b"data: [DONE]\n\n"))
-                    print(
-                        f"[STREAM] tier={cand_route} first content accepted; "
-                        f"relay complete",
-                        flush=True,
+                    logger.info(
+                        "[STREAM] tier=%s first content accepted; relay complete",
+                        cand_route,
                     )
                     report_attempt(True, 200, "")
                     quality_reason = tool_tracker.failure_reason()
@@ -1210,17 +1399,19 @@ async def _call_backend(
                     return
                 except asyncio.TimeoutError:
                     report_attempt(False, None, "first_content_timeout")
-                    print(
-                        f"[STREAM] tier={cand_route} no first content within "
-                        f"{stream_start_timeout:.1f}s; falling back",
-                        flush=True,
+                    logger.warning(
+                        "[STREAM] tier=%s no first content within %.1fs; "
+                        "falling back",
+                        cand_route,
+                        stream_start_timeout,
                     )
                 except Exception as exc:
                     report_attempt(False, None, type(exc).__name__)
-                    print(
-                        f"[STREAM] tier={cand_route} failed "
-                        f"{type(exc).__name__}: {exc!r}; falling back",
-                        flush=True,
+                    logger.warning(
+                        "[STREAM] tier=%s failed %s: %r; falling back",
+                        cand_route,
+                        type(exc).__name__,
+                        exc,
                     )
                     if accepted:
                         await queue.put((
@@ -1311,11 +1502,14 @@ async def _call_backend(
         outbound_fmt = cand_backend.get("format") or inbound_fmt
         outbound_path = FORMAT_TO_PATH.get(outbound_fmt, "/chat/completions")
         url = f"{cand_backend['base_url']}{outbound_path}"
-        print(
-            f"[ATTEMPT] {idx + 1}/{len(candidates)} tier={cand_route} "
-            f"model={cand_backend.get('model', '')} fmt={outbound_fmt} "
-            f"stream={is_stream}",
-            flush=True,
+        logger.info(
+            "[ATTEMPT] %d/%d tier=%s model=%s fmt=%s stream=%s",
+            idx + 1,
+            len(candidates),
+            cand_route,
+            cand_backend.get("model", ""),
+            outbound_fmt,
+            is_stream,
         )
         logger.info("attempt %d/%d tier=%s model=%s fmt=%s stream=%s url=%s",
                     idx + 1, len(candidates), cand_route, cand_backend.get("model", ""),
@@ -1356,19 +1550,27 @@ async def _call_backend(
 
             # Log AFTER conversion so `sent` shows what the backend really gets.
             if reasoning_meta.get("effective") or reasoning_meta.get("dropped_reason"):
-                print(
-                    f"[REASONING] tier={cand_route} model={cand_backend.get('model', '')} "
-                    f"fmt={outbound_fmt} src={reasoning_meta.get('source')} "
-                    f"requested={reasoning_meta.get('requested')} "
-                    f"-> {reasoning_meta.get('effective')} "
-                    f"clamped={reasoning_meta.get('clamped')} "
-                    f"dropped={reasoning_meta.get('dropped_reason')} "
-                    f"sent=" + str({
-                        k: outbound_body.get(k) for k in
-                        ("reasoning_effort", "reasoning", "thinking", "output_config")
+                logger.info(
+                    "[REASONING] tier=%s model=%s fmt=%s src=%s "
+                    "requested=%s -> %s clamped=%s dropped=%s sent=%s",
+                    cand_route,
+                    cand_backend.get("model", ""),
+                    outbound_fmt,
+                    reasoning_meta.get("source"),
+                    reasoning_meta.get("requested"),
+                    reasoning_meta.get("effective"),
+                    reasoning_meta.get("clamped"),
+                    reasoning_meta.get("dropped_reason"),
+                    {
+                        k: outbound_body.get(k)
+                        for k in (
+                            "reasoning_effort",
+                            "reasoning",
+                            "thinking",
+                            "output_config",
+                        )
                         if outbound_body.get(k) is not None
-                    }),
-                    flush=True,
+                    },
                 )
 
             if is_stream:
@@ -1399,9 +1601,10 @@ async def _call_backend(
                         stream_ctx.__aenter__(), timeout=stream_start_timeout
                     )
                     if resp.status_code != 200:
-                        print(
-                            f"[STREAM] tier={cand_route} HTTP {resp.status_code}; falling back",
-                            flush=True,
+                        logger.warning(
+                            "[STREAM] tier=%s HTTP %s; falling back",
+                            cand_route,
+                            resp.status_code,
                         )
                         logger.warning("stream candidate %s returned HTTP %d",
                                        cand_route, resp.status_code)
@@ -1429,10 +1632,11 @@ async def _call_backend(
                                 )
                                 break
                 except asyncio.TimeoutError:
-                    print(
-                        f"[STREAM] tier={cand_route} no first content within "
-                        f"{stream_start_timeout:.1f}s; falling back",
-                        flush=True,
+                    logger.warning(
+                        "[STREAM] tier=%s no first content within %.1fs; "
+                        "falling back",
+                        cand_route,
+                        stream_start_timeout,
                     )
                     logger.warning(
                         "stream candidate %s produced no content within %.1fs",
@@ -1441,10 +1645,11 @@ async def _call_backend(
                     )
                     upstream_error = True
                 except Exception as exc:
-                    print(
-                        f"[STREAM] tier={cand_route} start failed "
-                        f"{type(exc).__name__}: {exc}; falling back",
-                        flush=True,
+                    logger.warning(
+                        "[STREAM] tier=%s start failed %s: %s; falling back",
+                        cand_route,
+                        type(exc).__name__,
+                        exc,
                     )
                     logger.warning("stream candidate %s start failed: %s", cand_route, exc)
                     upstream_error = True
@@ -1495,10 +1700,11 @@ async def _call_backend(
                             async for chunk in _raw_stream():
                                 yield chunk
                     except Exception as exc:
-                        print(
-                            f"[STREAM] relay {_tier} failed "
-                            f"{type(exc).__name__}: {exc!r}",
-                            flush=True,
+                        logger.warning(
+                            "[STREAM] relay %s failed %s: %r",
+                            _tier,
+                            type(exc).__name__,
+                            exc,
                         )
                     finally:
                         if _raw_iter is not None:
@@ -1517,13 +1723,18 @@ async def _call_backend(
 
                 logger.info("stream candidate %s accepted (first chunks=%d bytes)",
                             cand_route, sum(len(b) for b in buffered))
-                print(
-                    f"[STREAM] tier={cand_route} first content after "
-                    f"{(loop.time() - (deadline - stream_start_timeout)):.2f}s; "
-                    f"relay started",
-                    flush=True,
+                logger.info(
+                    "[STREAM] tier=%s first content after %.2fs; relay started",
+                    cand_route,
+                    loop.time() - (deadline - stream_start_timeout),
                 )
-                print(f"[ROUTE] stream tier={cand_route} model={cand_backend.get('model', '')} outbound={outbound_fmt} url={url}", flush=True)
+                logger.info(
+                    "[ROUTE] stream tier=%s model=%s outbound=%s url=%s",
+                    cand_route,
+                    cand_backend.get("model", ""),
+                    outbound_fmt,
+                    url,
+                )
                 return StreamingResponse(
                     _stream(),
                     media_type="text/event-stream",
@@ -1574,7 +1785,14 @@ async def _call_backend(
                                    cand_route)
                 else:
                     logger.info("candidate %s accepted", cand_route)
-                print(f"[ROUTE] {cand_route} model={cand_backend.get('model','')} outbound={outbound_fmt} status={status} url={url}", flush=True)
+                logger.info(
+                    "[ROUTE] %s model=%s outbound=%s status=%s url=%s",
+                    cand_route,
+                    cand_backend.get("model", ""),
+                    outbound_fmt,
+                    status,
+                    url,
+                )
                 out_resp["_router"] = {
                     "tier": cand_route,
                     "model": cand_backend["model"],
@@ -2002,12 +2220,28 @@ def _routing_state_store() -> RoutingStateStore | None:
 def _circuit_breaker() -> CircuitBreaker:
     global _CIRCUIT_BREAKER
     if _CIRCUIT_BREAKER is None:
-        _CIRCUIT_BREAKER = CircuitBreaker(
+        state_path = (
+            os.environ.get("ROUTER_CIRCUIT_STATE_DB")
+            or os.environ.get("ROUTER_STATE_DB")
+            or str(Path.cwd() / ".squilla_router_state.db")
+        )
+        options = dict(
             enabled=ROUTER_CIRCUIT_BREAKER_ENABLED,
             failure_threshold=1,
             cooldown_seconds=ROUTER_FAILURE_COOLDOWN_SECONDS,
             rate_limit_cooldown_seconds=ROUTER_RATE_LIMIT_COOLDOWN_SECONDS,
         )
+        try:
+            _CIRCUIT_BREAKER = CircuitBreaker(
+                **options,
+                state_path=state_path,
+            )
+        except Exception as exc:
+            logger.warning(
+                "persistent circuit state unavailable; using process memory: %s",
+                exc,
+            )
+            _CIRCUIT_BREAKER = CircuitBreaker(**options)
     return _CIRCUIT_BREAKER
 
 
@@ -2072,6 +2306,21 @@ def _promote_thinking_mode(mode: str | None, tier: str) -> str:
     )
 
 
+def _headers_with_authenticated_tenant(request: Request) -> dict[str, str]:
+    headers = dict(request.headers)
+    principal = getattr(request.state, "router_principal", None)
+    tenant_id = (
+        principal.tenant_id
+        if isinstance(principal, RouterPrincipal)
+        else ""
+    )
+    if tenant_id:
+        # The authenticated key is authoritative.  Request metadata cannot
+        # select a different tenant after authentication.
+        headers["x-squilla-tenant-id"] = tenant_id
+    return headers
+
+
 def _prepare_session_route(
     request: Request,
     body: dict[str, Any],
@@ -2080,7 +2329,10 @@ def _prepare_session_route(
     *,
     valid_tiers: list[str] | None = None,
 ) -> SessionRoutePlan:
-    identity = resolve_request_identity(dict(request.headers), body)
+    identity = resolve_request_identity(
+        _headers_with_authenticated_tenant(request),
+        body,
+    )
     requested_cost_policy = str(
         request.headers.get("x-squilla-cost-policy") or ""
     ).strip().lower()
@@ -2509,7 +2761,10 @@ def _repeat_callback_for(plan: SessionRoutePlan) -> Callable[[str], None]:
 
 
 @app.post("/v1/chat/completions")
-async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)):
+async def chat_completions(
+    request: Request,
+    _auth: RouterPrincipal = Depends(_verify_auth),
+):
     """OpenAI Chat Completions: classify, pick model, replace model, forward raw to /chat/completions."""
     body = await request.json()
     messages = body.get("messages", [])
@@ -2593,7 +2848,10 @@ async def chat_completions(request: Request, _auth: bool = Depends(_verify_auth)
 
 
 @app.post("/v1/responses")
-async def responses_endpoint(request: Request, _auth: bool = Depends(_verify_auth)):
+async def responses_endpoint(
+    request: Request,
+    _auth: RouterPrincipal = Depends(_verify_auth),
+):
     """OpenAI Responses API: classify, pick model, replace model, forward raw to /responses."""
     body = await request.json()
     # Extract user text from Responses 'input'
@@ -2690,7 +2948,10 @@ async def responses_endpoint(request: Request, _auth: bool = Depends(_verify_aut
 
 
 @app.post("/v1/messages")
-async def anthropic_messages(request: Request, _auth: bool = Depends(_verify_auth)):
+async def anthropic_messages(
+    request: Request,
+    _auth: RouterPrincipal = Depends(_verify_auth),
+):
     """Anthropic Messages: classify, pick model, replace model, forward raw to /messages."""
     body = await request.json()
     messages = body.get("messages", [])
@@ -2760,7 +3021,9 @@ async def health():
 
 @app.post("/admin/reload-config")
 
-async def reload_config_endpoint(_auth: bool = Depends(_verify_auth)):
+async def reload_config_endpoint(
+    _auth: RouterPrincipal = Depends(_verify_admin_auth),
+):
 
     """Force a config reload from .env (no restart).  Auth required."""
 
@@ -2799,7 +3062,8 @@ async def reload_config_endpoint(_auth: bool = Depends(_verify_auth)):
 
 @app.get("/admin/routing-state")
 async def routing_state_endpoint(
-    session_id: str, _auth: bool = Depends(_verify_auth)
+    session_id: str,
+    _auth: RouterPrincipal = Depends(_verify_admin_auth),
 ):
     store = _routing_state_store()
     state = store.get(session_id) if store else None
@@ -2813,7 +3077,8 @@ async def routing_state_endpoint(
 
 @app.delete("/admin/routing-state")
 async def delete_routing_state_endpoint(
-    session_id: str, _auth: bool = Depends(_verify_auth)
+    session_id: str,
+    _auth: RouterPrincipal = Depends(_verify_admin_auth),
 ):
     store = _routing_state_store()
     deleted = store.delete(session_id) if store else False
@@ -2821,14 +3086,43 @@ async def delete_routing_state_endpoint(
 
 
 @app.post("/admin/purge-state")
-async def purge_routing_state_endpoint(_auth: bool = Depends(_verify_auth)):
+async def purge_routing_state_endpoint(
+    _auth: RouterPrincipal = Depends(_verify_admin_auth),
+):
     store = _routing_state_store()
     return {"purged": store.purge_expired() if store else 0}
 
 
+@app.get("/admin/circuit-breakers")
+async def circuit_breakers_endpoint(
+    _auth: RouterPrincipal = Depends(_verify_admin_auth),
+):
+    breaker = _circuit_breaker()
+    snapshot = breaker.snapshot()
+    now = time.time() if breaker.state_path is not None else time.monotonic()
+    return {
+        "enabled": breaker.enabled,
+        "persistent": breaker.state_path is not None,
+        "count": len(snapshot),
+        "backends": {
+            key: {
+                "consecutive_failures": health.consecutive_failures,
+                "cooldown_remaining_seconds": round(
+                    max(0.0, health.cooldown_until - now),
+                    3,
+                ),
+                "last_status": health.last_status,
+                "last_error": health.last_error,
+            }
+            for key, health in snapshot.items()
+        },
+    }
+
+
 @app.get("/admin/routing-usage")
 async def routing_usage_endpoint(
-    session_id: str, _auth: bool = Depends(_verify_auth)
+    session_id: str,
+    _auth: RouterPrincipal = Depends(_verify_admin_auth),
 ):
     store = _routing_state_store()
     calls = store.list_calls(session_id) if store else []

@@ -7,8 +7,8 @@
 #   PORT=8023 ./start_router_mac.sh        # custom via env
 #
 # The service runs detached with nohup, so closing the terminal does NOT
-# stop it.  Logs:
-#   stdout -> uvicorn_<port>.log, stderr -> uvicorn_<port>.err.log
+# stop it.  Application/uvicorn/access logs are size-rotated:
+#   squilla_router.log, squilla_router_access.log
 # To stop: kill $(cat squilla_router_<port>.pid)
 #
 # NOTE: macOS has no `seq`; a while loop is used below.
@@ -70,9 +70,9 @@ if [ "$ok" = true ]; then
     echo "  PID:   $NEW_PID"
     echo "  URL:   http://127.0.0.1:$PORT/v1"
     echo "  ML:    $(cat /tmp/squilla_health.json)"
-    echo "  Logs:  $RUN_DIR/uvicorn_$PORT.log / .err.log"
+    echo "  Logs:  $RUN_DIR/squilla_router.log / squilla_router_access.log"
     echo "  Stop:  kill \$(cat $RUN_DIR/squilla_router_$PORT.pid)"
 else
-    echo "FAILED to start. Check $RUN_DIR/uvicorn_$PORT.err.log"
+    echo "FAILED to start. Check $RUN_DIR/squilla_router.log"
     exit 1
 fi

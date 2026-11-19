@@ -5,8 +5,9 @@
 #   powershell -ExecutionPolicy Bypass -File start_router.ps1 8022    # custom
 #
 # The service runs detached (Start-Process -WindowStyle Hidden), so closing
-# the terminal does NOT stop it.  Logs:
-#   stdout -> uvicorn_<port>.log, stderr -> uvicorn_<port>.err.log
+# the terminal does NOT stop it.  Application/uvicorn/access logs are
+# size-rotated by _run_server.py:
+#   squilla_router.log, squilla_router_access.log
 
 param(
     [int]$Port = 8021
@@ -65,8 +66,8 @@ if ($ok) {
     Write-Host "  PID:   $($proc.Id)"
     Write-Host "  URL:   http://$Listen`:$Port/v1"
     Write-Host "  ML:    ml_ready=$($h.ml_ready)"
-    Write-Host "  Logs:  $RunDir\uvicorn_$Port.log / .err.log"
+    Write-Host "  Logs:  $RunDir\squilla_router.log / squilla_router_access.log"
 } else {
-    Write-Host "FAILED to start. Check $RunDir\uvicorn_$Port.err.log" -ForegroundColor Red
+    Write-Host "FAILED to start. Check $RunDir\squilla_router.log" -ForegroundColor Red
     exit 1
 }

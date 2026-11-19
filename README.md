@@ -176,15 +176,30 @@ code / debug / design / explain / translate / math / tool / general
 
 ### 后端熔断（P1）
 
-失败或 429 后的模型会进入进程级冷却，期间优先跳过该 provider/model：
+失败或 429 后的模型会进入冷却，期间优先跳过该 provider/model。熔断状态写入
+SQLite，同一数据库上的多个 worker/进程共享状态，服务重启后冷却仍有效：
 
 ```env
 ROUTER_CIRCUIT_BREAKER_ENABLED=1
 ROUTER_FAILURE_COOLDOWN_SECONDS=60
 ROUTER_RATE_LIMIT_COOLDOWN_SECONDS=15
+# 默认复用 ROUTER_STATE_DB；也可单独指定
+# ROUTER_CIRCUIT_STATE_DB=.squilla_router_state.db
 ```
 
 usage 账本同时记录成功调用和失败尝试：HTTP 状态、错误类型、尝试延迟和冷却时间。
+
+应用日志、uvicorn 错误日志和 access log 使用 `RotatingFileHandler`：
+
+```env
+ROUTER_LOG_ENABLED=1
+ROUTER_LOG_FILE=squilla_router.log
+ROUTER_ACCESS_LOG_FILE=squilla_router_access.log
+ROUTER_LOG_MAX_BYTES=20971520
+ROUTER_LOG_BACKUP_COUNT=5
+```
+
+达到大小后生成 `.1`、`.2` 等备份，默认单文件 20 MiB、保留 5 份。
 
 Session 状态使用 revision 乐观并发控制，旧 revision 不能覆盖新状态。
 默认 24 小时过期，可通过 `ROUTER_STATE_TTL_SECONDS` 修改；
@@ -277,14 +292,25 @@ response = client.chat.completions.create(
 
 ## 鉴权
 
-Router 会校验 `Authorization: Bearer <ROUTER_API_KEY>`。`.env` 里的 `ROUTER_API_KEY` 是自己定义的本地密钥，和后端平台的 key 无关。
+Router 会校验 `Authorization: Bearer <key>`（Anthropic 客户端也可用
+`x-api-key`）。`.env` 里的 Router key 是自己定义的本地密钥，和后端平台的
+key 无关。
 
 ```text
-# 在 .env 里设置
+# 管理员/全局 key
 ROUTER_API_KEY=router-local-key-001
+
+# 可选：租户 key -> tenant 的绑定
+ROUTER_TENANT_API_KEYS={"team-a":"sk-router-team-a","team-b":"sk-router-team-b"}
 ```
 
 - 无 key / 错误 key → 401
+- 租户 key 只能调用模型 API；访问 `/admin/*` → 403
+- 租户 key 绑定后，Session ID 自动加 `tenant-id:` 前缀；请求 header/metadata
+  不能切换到其他租户
+- tenant id 只允许 `A-Z a-z 0-9 _ . -`，长度 1–64；租户 key 不能与全局 key 相同
+- 全局 key 是管理员 key，可访问 `/admin/*`，也可用
+  `X-Squilla-Tenant-Id` 主动选择租户
 - `GET /health` 和 `GET /router-status` 不需要鉴权
 
 OpenCode / 智能体接入时：
@@ -303,7 +329,7 @@ OpenCode / 智能体接入时：
 }
 ```
 
-如果不想启用鉴权，把 `ROUTER_API_KEY` 留空即可。
+如果 `ROUTER_API_KEY` 和 `ROUTER_TENANT_API_KEYS` 都为空，则以无鉴权模式运行。
 
 ## 模型配置
 
@@ -565,6 +591,12 @@ Anthropic 格式响应：
 |------|------|
 | `GET /health` | 健康检查 + ML 分类器状态 |
 | `GET /router-status` | 各档位配置 + 路由映射表 |
+| `POST /admin/reload-config` | 热加载 `.env`（仅管理员 key） |
+| `GET /admin/routing-state` | 查询 Session 路由状态（仅管理员 key） |
+| `DELETE /admin/routing-state` | 删除 Session 路由状态（仅管理员 key） |
+| `POST /admin/purge-state` | 清理过期状态（仅管理员 key） |
+| `GET /admin/circuit-breakers` | 查询共享熔断状态（仅管理员 key） |
+| `GET /admin/routing-usage` | 查询调用与失败账本（仅管理员 key） |
 
 ## 语义分类原理
 
