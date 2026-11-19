@@ -7,6 +7,8 @@ It does not call the router HTTP service or any model provider.
 
 ```powershell
 python benchmarks\benchmark_task_change.py --repeat 3 --sweep
+python benchmarks\build_task_change_train.py
+python benchmarks\build_task_change_holdout.py
 python benchmarks\benchmark_task_change_hybrid.py --repeat 3
 ```
 
@@ -70,24 +72,31 @@ and it must be validated on a holdout set.
 
 ## Independent holdout and hybrid candidate
 
-`task_change_holdout.jsonl` contains 52 cases that are not used to train the
-hybrid classifier. The candidate keeps explicit/session/tool rules
-deterministic and trains a small binary logistic model only for ambiguous user
-turns.
+`task_change_train_v2.jsonl` contains 101 training cases. The expanded
+`task_change_holdout_v2.jsonl` contains 148 cases, including 96 fresh
+scenario-generated turns that are not used to train the classifier. The
+candidate keeps explicit/session/tool rules deterministic and trains a small
+binary logistic model only for ambiguous user turns.
 
-| Strategy on 52 holdout cases | Accuracy | Macro F1 | False split | Missed change |
+| Strategy on 96 fresh scenario turns | Accuracy | Macro F1 | False split | Missed change |
 |---|---:|---:|---:|---:|
-| current rule | 65.38% | 0.552 | 45.45% | 26.67% |
-| BGE semantic v1 | 71.15% | 0.597 | 13.64% | 40.00% |
-| rules + small classifier (`hybrid_v2`) | 92.31% | 0.705 | 18.18% | 0.00% |
+| current rule | 22.92% | 0.348 | 95.89% | 17.39% |
+| BGE semantic v1 | 47.92% | 0.478 | 56.16% | 39.13% |
+| rules + small classifier (`hybrid_v2`) | 94.79% | 0.715 | 4.11% | 8.70% |
 
 The hybrid candidate is promising but still experimental:
 
-- it eliminates missed task changes in this holdout;
-- it still splits 18.18% of same-task turns;
-- 28 ambiguous training cases are too few for production confidence;
+- 76 ambiguous training cases remain small for production confidence;
+- false task splits still occur on normal follow-ups;
+- most remaining missed changes are cross-domain switches;
+- the 0.45 classifier threshold is selected from training-only out-of-fold
+  predictions, not from this holdout;
 - three repeated runs produced the same decision SHA-256.
 
 Do not enable `hybrid_v2` in the router until it is validated on substantially
 more real multi-turn sessions and its model artifacts have a stable versioned
 format.
+
+\* The current rule compares against the original task anchor. Multi-turn
+scenario continuation after a task switch therefore exposes its intended
+limitation very clearly in this fresh set.

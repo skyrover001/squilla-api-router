@@ -7,6 +7,7 @@ from benchmarks.benchmark_task_change import (
 )
 from benchmarks.benchmark_task_change_hybrid import (
     HOLDOUT,
+    TRAIN,
     _digest as hybrid_digest,
     run as run_hybrid_benchmark,
 )
@@ -46,3 +47,15 @@ def test_hybrid_holdout_benchmark_is_deterministic() -> None:
     assert hybrid_digest(first) == hybrid_digest(second)
     assert first["holdout_cases"] == len(load_cases(HOLDOUT))
     assert first["ambiguous_train_cases"] >= 20
+
+
+def test_expanded_train_and_holdout_are_disjoint() -> None:
+    train = load_cases(TRAIN)
+    holdout = load_cases(HOLDOUT)
+
+    assert len(train) >= 100
+    assert len(holdout) >= 145
+    assert {case["id"] for case in train}.isdisjoint(
+        {case["id"] for case in holdout}
+    )
+    assert any(case["id"].startswith("v2-") for case in holdout)

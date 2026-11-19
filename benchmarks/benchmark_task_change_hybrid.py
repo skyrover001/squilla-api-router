@@ -21,6 +21,7 @@ from typing import Any
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import StratifiedKFold, cross_val_predict
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,7 +31,6 @@ if str(ROOT.parent) not in sys.path:
     sys.path.insert(0, str(ROOT.parent))
 
 from benchmarks.benchmark_task_change import (  # noqa: E402
-    DATASET,
     _category_metrics,
     _identity,
     _metrics,
@@ -51,7 +51,8 @@ from squilla_api_router.routing_state import (  # noqa: E402
 from squilla_api_router.v4_runtime.bge_onnx import OnnxBGE  # noqa: E402
 
 
-HOLDOUT = Path(__file__).with_name("task_change_holdout.jsonl")
+HOLDOUT = Path(__file__).with_name("task_change_holdout_v2.jsonl")
+TRAIN = Path(__file__).with_name("task_change_train_v2.jsonl")
 OUTPUT = Path(__file__).with_name("task_change_hybrid_latest.json")
 _CONTINUE_REFERENCE_RE = re.compile(
     r"(继续|接着|上面|刚才|前面|这个|该方案|再|补上|加上|加入|统一|保留|"
@@ -208,6 +209,38 @@ def _fit_hybrid(
         max_iter=2000,
     )
     model.fit(matrix, labels)
+    folds = min(5, int(np.bincount(labels, minlength=2).min()))
+    threshold = 0.5
+    if folds >= 2:
+        out_of_fold = cross_val_predict(
+            LogisticRegression(
+                C=0.8,
+                class_weight="balanced",
+                solver="liblinear",
+                random_state=42,
+                max_iter=2000,
+            ),
+            matrix,
+            labels,
+            cv=StratifiedKFold(
+                n_splits=folds,
+                shuffle=True,
+                random_state=42,
+            ),
+            method="predict_proba",
+        )[:, 1]
+        candidates: list[tuple[float, float, int, int]] = []
+        for step in range(20, 81):
+            candidate = step / 100.0
+            predicted = out_of_fold >= candidate
+            false_split = int(np.sum((labels == 0) & predicted))
+            missed_change = int(np.sum((labels == 1) & ~predicted))
+            # Quality first: a missed task change is twice as costly as a
+            # same-task split. Ties prefer the higher threshold.
+            cost = false_split + 2 * missed_change
+            candidates.append((float(cost), -candidate, false_split, missed_change))
+        _, negative_threshold, _, _ = min(candidates)
+        threshold = -negative_threshold
     numeric_names = [
         "goal_bge",
         "anchor_bge",
@@ -245,6 +278,7 @@ def _fit_hybrid(
         "top_same_task_features": [
             [name, round(float(weight), 6)] for name, weight in top_same
         ],
+        "threshold": threshold,
     }
 
 
@@ -280,14 +314,18 @@ def _predict_hybrid(
         probability = float(
             fitted["model"].predict_proba(np.hstack([numeric, text]))[0, 1]
         )
-        predictions.append("task_changed" if probability >= 0.5 else "continue")
+        predictions.append(
+            "task_changed"
+            if probability >= float(fitted["threshold"])
+            else "continue"
+        )
         change_probabilities[case["id"]] = probability
     return predictions, change_probabilities
 
 
 def run(
     *,
-    train_path: Path = DATASET,
+    train_path: Path = TRAIN,
     holdout_path: Path = HOLDOUT,
     bge_model_dir: Path = ROOT / "model_bundle" / "bge_onnx",
 ) -> dict[str, Any]:
@@ -342,6 +380,7 @@ def run(
             }
         )
 
+    fresh_rows = [row for row in rows if str(row["id"]).startswith("v2-")]
     return {
         "train_dataset": str(train_path),
         "holdout_dataset": str(holdout_path),
@@ -351,7 +390,7 @@ def run(
             "type": "LogisticRegression",
             "text_features": "char 1-3gram TF-IDF, max 512",
             "numeric_features": 15,
-            "threshold": 0.5,
+            "threshold": fitted["threshold"],
             "top_changed_features": fitted["top_changed_features"],
             "top_same_task_features": fitted["top_same_task_features"],
         },
@@ -359,6 +398,13 @@ def run(
             key: {
                 **_metrics(rows, key),
                 "by_category": _category_metrics(rows, key),
+            }
+            for key in ("current_rule", "semantic_v1", "hybrid_v2")
+        },
+        "fresh_scenario_summary": {
+            key: {
+                **_metrics(fresh_rows, key),
+                "by_category": _category_metrics(fresh_rows, key),
             }
             for key in ("current_rule", "semantic_v1", "hybrid_v2")
         },
@@ -384,7 +430,7 @@ def _digest(result: dict[str, Any]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--train", type=Path, default=DATASET)
+    parser.add_argument("--train", type=Path, default=TRAIN)
     parser.add_argument("--holdout", type=Path, default=HOLDOUT)
     parser.add_argument(
         "--bge-model-dir",
