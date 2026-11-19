@@ -5,6 +5,11 @@ from benchmarks.benchmark_task_change import (
     load_cases,
     run_benchmark,
 )
+from benchmarks.benchmark_task_change_hybrid import (
+    HOLDOUT,
+    _digest as hybrid_digest,
+    run as run_hybrid_benchmark,
+)
 
 
 def test_task_change_dataset_covers_intent_boundaries() -> None:
@@ -32,3 +37,12 @@ def test_task_change_benchmark_is_deterministic() -> None:
     assert _decision_digest(first) == _decision_digest(second)
     assert first["summary"]["current_rule"]["cases"] == len(load_cases())
     assert first["summary"]["semantic_v1"]["cases"] == len(load_cases())
+
+
+def test_hybrid_holdout_benchmark_is_deterministic() -> None:
+    first = run_hybrid_benchmark()
+    second = run_hybrid_benchmark()
+
+    assert hybrid_digest(first) == hybrid_digest(second)
+    assert first["holdout_cases"] == len(load_cases(HOLDOUT))
+    assert first["ambiguous_train_cases"] >= 20

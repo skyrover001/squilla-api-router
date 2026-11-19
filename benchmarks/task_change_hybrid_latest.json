@@ -1,0 +1,1006 @@
+{
+  "train_dataset": "E:\\桌面\\2026专利申请\\squilla_api_router\\benchmarks\\task_change_cases.jsonl",
+  "holdout_dataset": "E:\\桌面\\2026专利申请\\squilla_api_router\\benchmarks\\task_change_holdout.jsonl",
+  "holdout_cases": 52,
+  "ambiguous_train_cases": 28,
+  "model": {
+    "type": "LogisticRegression",
+    "text_features": "char 1-3gram TF-IDF, max 512",
+    "numeric_features": 15,
+    "threshold": 0.5,
+    "top_changed_features": [
+      [
+        "new_action",
+        0.935543
+      ],
+      [
+        "task_shift_cue",
+        0.469038
+      ],
+      [
+        "length_ratio",
+        0.26292
+      ],
+      [
+        "char:录",
+        0.166301
+      ],
+      [
+        "char:库",
+        0.123971
+      ],
+      [
+        "char:率",
+        0.123623
+      ],
+      [
+        "char:登",
+        0.123623
+      ],
+      [
+        "char:登录",
+        0.123623
+      ],
+      [
+        "char:据",
+        0.11291
+      ],
+      [
+        "char:据库",
+        0.11291
+      ],
+      [
+        "char:数据",
+        0.11291
+      ],
+      [
+        "char:数据库",
+        0.11291
+      ],
+      [
+        "char:量",
+        0.11185
+      ],
+      [
+        "char:s",
+        0.110989
+      ],
+      [
+        "char:份",
+        0.11079
+      ]
+    ],
+    "top_same_task_features": [
+      [
+        "continue_reference",
+        -1.441908
+      ],
+      [
+        "refine_action",
+        -0.337859
+      ],
+      [
+        "char:改",
+        -0.246334
+      ],
+      [
+        "char:上",
+        -0.228853
+      ],
+      [
+        "char:不",
+        -0.206501
+      ],
+      [
+        "char:数",
+        -0.205496
+      ],
+      [
+        "char:再",
+        -0.188302
+      ],
+      [
+        "char:试",
+        -0.18702
+      ],
+      [
+        "char:上游",
+        -0.178707
+      ],
+      [
+        "char:游",
+        -0.178707
+      ],
+      [
+        "char:大",
+        -0.152923
+      ],
+      [
+        "char:重",
+        -0.152923
+      ],
+      [
+        "char:重试",
+        -0.152923
+      ],
+      [
+        "char:时",
+        -0.143024
+      ],
+      [
+        "char:变",
+        -0.134351
+      ]
+    ]
+  },
+  "summary": {
+    "current_rule": {
+      "cases": 52,
+      "accuracy": 0.653846,
+      "macro_f1": 0.552419,
+      "false_split_count": 10,
+      "false_split_rate": 0.454545,
+      "missed_change_count": 8,
+      "missed_change_rate": 0.266667,
+      "confusion": {
+        "continue": {
+          "continue": 9,
+          "task_changed": 10
+        },
+        "redo": {
+          "redo": 3
+        },
+        "task_changed": {
+          "continue": 8,
+          "task_changed": 22
+        }
+      },
+      "semantic_similarity": {
+        "same_task_median": 0.544442,
+        "changed_task_median": 0.465318,
+        "same_task_anchor_median": 0.63725,
+        "changed_task_anchor_median": 0.565404
+      },
+      "by_category": {
+        "explicit_continue": {
+          "cases": 5,
+          "accuracy": 1.0
+        },
+        "explicit_new_task": {
+          "cases": 4,
+          "accuracy": 1.0
+        },
+        "explicit_redo": {
+          "cases": 3,
+          "accuracy": 1.0
+        },
+        "implicit_continue": {
+          "cases": 10,
+          "accuracy": 0.0
+        },
+        "session_contract_change": {
+          "cases": 4,
+          "accuracy": 0.0
+        },
+        "task_changed_cross_domain": {
+          "cases": 10,
+          "accuracy": 0.8
+        },
+        "task_changed_shared_domain": {
+          "cases": 12,
+          "accuracy": 0.833333
+        },
+        "tool_continuation": {
+          "cases": 4,
+          "accuracy": 1.0
+        }
+      }
+    },
+    "semantic_v1": {
+      "cases": 52,
+      "accuracy": 0.711538,
+      "macro_f1": 0.596683,
+      "false_split_count": 3,
+      "false_split_rate": 0.136364,
+      "missed_change_count": 12,
+      "missed_change_rate": 0.4,
+      "confusion": {
+        "continue": {
+          "continue": 16,
+          "task_changed": 3
+        },
+        "redo": {
+          "redo": 3
+        },
+        "task_changed": {
+          "continue": 12,
+          "task_changed": 18
+        }
+      },
+      "semantic_similarity": {
+        "same_task_median": 0.544442,
+        "changed_task_median": 0.465318,
+        "same_task_anchor_median": 0.63725,
+        "changed_task_anchor_median": 0.565404
+      },
+      "by_category": {
+        "explicit_continue": {
+          "cases": 5,
+          "accuracy": 1.0
+        },
+        "explicit_new_task": {
+          "cases": 4,
+          "accuracy": 1.0
+        },
+        "explicit_redo": {
+          "cases": 3,
+          "accuracy": 1.0
+        },
+        "implicit_continue": {
+          "cases": 10,
+          "accuracy": 0.7
+        },
+        "session_contract_change": {
+          "cases": 4,
+          "accuracy": 1.0
+        },
+        "task_changed_cross_domain": {
+          "cases": 10,
+          "accuracy": 0.7
+        },
+        "task_changed_shared_domain": {
+          "cases": 12,
+          "accuracy": 0.25
+        },
+        "tool_continuation": {
+          "cases": 4,
+          "accuracy": 1.0
+        }
+      }
+    },
+    "hybrid_v2": {
+      "cases": 52,
+      "accuracy": 0.923077,
+      "macro_f1": 0.704963,
+      "false_split_count": 4,
+      "false_split_rate": 0.181818,
+      "missed_change_count": 0,
+      "missed_change_rate": 0.0,
+      "confusion": {
+        "continue": {
+          "continue": 15,
+          "task_changed": 4
+        },
+        "redo": {
+          "redo": 3
+        },
+        "task_changed": {
+          "task_changed": 30
+        }
+      },
+      "semantic_similarity": {
+        "same_task_median": 0.544442,
+        "changed_task_median": 0.465318,
+        "same_task_anchor_median": 0.63725,
+        "changed_task_anchor_median": 0.565404
+      },
+      "by_category": {
+        "explicit_continue": {
+          "cases": 5,
+          "accuracy": 1.0
+        },
+        "explicit_new_task": {
+          "cases": 4,
+          "accuracy": 1.0
+        },
+        "explicit_redo": {
+          "cases": 3,
+          "accuracy": 1.0
+        },
+        "implicit_continue": {
+          "cases": 10,
+          "accuracy": 0.6
+        },
+        "session_contract_change": {
+          "cases": 4,
+          "accuracy": 1.0
+        },
+        "task_changed_cross_domain": {
+          "cases": 10,
+          "accuracy": 1.0
+        },
+        "task_changed_shared_domain": {
+          "cases": 12,
+          "accuracy": 1.0
+        },
+        "tool_continuation": {
+          "cases": 4,
+          "accuracy": 1.0
+        }
+      }
+    }
+  },
+  "rows": [
+    {
+      "id": "hold-explicit-continue-01",
+      "category": "explicit_continue",
+      "expected": "continue",
+      "current_rule": "continue",
+      "semantic_v1": "continue",
+      "semantic_reason": "continuation_phrase",
+      "hybrid_v2": "continue",
+      "change_probability": 0.0,
+      "goal_similarity": 0.526134,
+      "anchor_similarity": 0.6165,
+      "similarity": 0.526134
+    },
+    {
+      "id": "hold-explicit-continue-02",
+      "category": "explicit_continue",
+      "expected": "continue",
+      "current_rule": "continue",
+      "semantic_v1": "continue",
+      "semantic_reason": "continuation_phrase",
+      "hybrid_v2": "continue",
+      "change_probability": 0.0,
+      "goal_similarity": 0.432771,
+      "anchor_similarity": 0.539368,
+      "similarity": 0.432771
+    },
+    {
+      "id": "hold-explicit-continue-03",
+      "category": "explicit_continue",
+      "expected": "continue",
+      "current_rule": "continue",
+      "semantic_v1": "continue",
+      "semantic_reason": "continuation_phrase",
+      "hybrid_v2": "continue",
+      "change_probability": 0.0,
+      "goal_similarity": 0.613611,
+      "anchor_similarity": 0.709304,
+      "similarity": 0.613611
+    },
+    {
+      "id": "hold-explicit-continue-04",
+      "category": "explicit_continue",
+      "expected": "continue",
+      "current_rule": "continue",
+      "semantic_v1": "continue",
+      "semantic_reason": "continuation_phrase",
+      "hybrid_v2": "continue",
+      "change_probability": 0.0,
+      "goal_similarity": 0.487304,
+      "anchor_similarity": 0.607793,
+      "similarity": 0.487304
+    },
+    {
+      "id": "hold-explicit-continue-05",
+      "category": "explicit_continue",
+      "expected": "continue",
+      "current_rule": "continue",
+      "semantic_v1": "continue",
+      "semantic_reason": "continuation_phrase",
+      "hybrid_v2": "continue",
+      "change_probability": 0.0,
+      "goal_similarity": 0.688254,
+      "anchor_similarity": 0.769609,
+      "similarity": 0.688254
+    },
+    {
+      "id": "hold-explicit-redo-01",
+      "category": "explicit_redo",
+      "expected": "redo",
+      "current_rule": "redo",
+      "semantic_v1": "redo",
+      "semantic_reason": "explicit_redo_phrase",
+      "hybrid_v2": "redo",
+      "change_probability": 0.0,
+      "goal_similarity": 0.436405,
+      "anchor_similarity": 0.562654,
+      "similarity": 0.436405
+    },
+    {
+      "id": "hold-explicit-redo-02",
+      "category": "explicit_redo",
+      "expected": "redo",
+      "current_rule": "redo",
+      "semantic_v1": "redo",
+      "semantic_reason": "explicit_redo_phrase",
+      "hybrid_v2": "redo",
+      "change_probability": 0.0,
+      "goal_similarity": 0.664162,
+      "anchor_similarity": 0.759873,
+      "similarity": 0.664162
+    },
+    {
+      "id": "hold-explicit-redo-03",
+      "category": "explicit_redo",
+      "expected": "redo",
+      "current_rule": "redo",
+      "semantic_v1": "redo",
+      "semantic_reason": "explicit_redo_phrase",
+      "hybrid_v2": "redo",
+      "change_probability": 0.0,
+      "goal_similarity": 0.480016,
+      "anchor_similarity": 0.600922,
+      "similarity": 0.480016
+    },
+    {
+      "id": "hold-explicit-new-01",
+      "category": "explicit_new_task",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "explicit_new_task_phrase",
+      "hybrid_v2": "task_changed",
+      "change_probability": 1.0,
+      "goal_similarity": 0.447798,
+      "anchor_similarity": 0.560462,
+      "similarity": 0.447798
+    },
+    {
+      "id": "hold-explicit-new-02",
+      "category": "explicit_new_task",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "explicit_new_task_phrase",
+      "hybrid_v2": "task_changed",
+      "change_probability": 1.0,
+      "goal_similarity": 0.436193,
+      "anchor_similarity": 0.541837,
+      "similarity": 0.436193
+    },
+    {
+      "id": "hold-explicit-new-03",
+      "category": "explicit_new_task",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "explicit_new_task_phrase",
+      "hybrid_v2": "task_changed",
+      "change_probability": 1.0,
+      "goal_similarity": 0.628349,
+      "anchor_similarity": 0.681836,
+      "similarity": 0.628349
+    },
+    {
+      "id": "hold-explicit-new-04",
+      "category": "explicit_new_task",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "explicit_new_task_phrase",
+      "hybrid_v2": "task_changed",
+      "change_probability": 1.0,
+      "goal_similarity": 0.410442,
+      "anchor_similarity": 0.525686,
+      "similarity": 0.410442
+    },
+    {
+      "id": "hold-tool-01",
+      "category": "tool_continuation",
+      "expected": "continue",
+      "current_rule": "continue",
+      "semantic_v1": "continue",
+      "semantic_reason": "tool_result_continuation",
+      "hybrid_v2": "continue",
+      "change_probability": 0.0,
+      "goal_similarity": 0.640607,
+      "anchor_similarity": 0.663428,
+      "similarity": 0.640607
+    },
+    {
+      "id": "hold-tool-02",
+      "category": "tool_continuation",
+      "expected": "continue",
+      "current_rule": "continue",
+      "semantic_v1": "continue",
+      "semantic_reason": "tool_result_continuation",
+      "hybrid_v2": "continue",
+      "change_probability": 0.0,
+      "goal_similarity": 0.483779,
+      "anchor_similarity": 0.490411,
+      "similarity": 0.483779
+    },
+    {
+      "id": "hold-tool-03",
+      "category": "tool_continuation",
+      "expected": "continue",
+      "current_rule": "continue",
+      "semantic_v1": "continue",
+      "semantic_reason": "tool_result_continuation",
+      "hybrid_v2": "continue",
+      "change_probability": 0.0,
+      "goal_similarity": 0.605279,
+      "anchor_similarity": 0.633613,
+      "similarity": 0.605279
+    },
+    {
+      "id": "hold-tool-04",
+      "category": "tool_continuation",
+      "expected": "continue",
+      "current_rule": "continue",
+      "semantic_v1": "continue",
+      "semantic_reason": "tool_result_continuation",
+      "hybrid_v2": "continue",
+      "change_probability": 0.0,
+      "goal_similarity": 0.442733,
+      "anchor_similarity": 0.50739,
+      "similarity": 0.442733
+    },
+    {
+      "id": "hold-contract-01",
+      "category": "session_contract_change",
+      "expected": "task_changed",
+      "current_rule": "continue",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "tool_schema_changed",
+      "hybrid_v2": "task_changed",
+      "change_probability": 1.0,
+      "goal_similarity": 0.356895,
+      "anchor_similarity": 0.557924,
+      "similarity": 0.356895
+    },
+    {
+      "id": "hold-contract-02",
+      "category": "session_contract_change",
+      "expected": "task_changed",
+      "current_rule": "continue",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "system_prompt_changed",
+      "hybrid_v2": "task_changed",
+      "change_probability": 1.0,
+      "goal_similarity": 0.524201,
+      "anchor_similarity": 0.640898,
+      "similarity": 0.524201
+    },
+    {
+      "id": "hold-contract-03",
+      "category": "session_contract_change",
+      "expected": "task_changed",
+      "current_rule": "continue",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "tool_schema_changed",
+      "hybrid_v2": "task_changed",
+      "change_probability": 1.0,
+      "goal_similarity": 0.363117,
+      "anchor_similarity": 0.509029,
+      "similarity": 0.363117
+    },
+    {
+      "id": "hold-contract-04",
+      "category": "session_contract_change",
+      "expected": "task_changed",
+      "current_rule": "continue",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "system_prompt_changed",
+      "hybrid_v2": "task_changed",
+      "change_probability": 1.0,
+      "goal_similarity": 0.376038,
+      "anchor_similarity": 0.518654,
+      "similarity": 0.376038
+    },
+    {
+      "id": "hold-implicit-continue-01",
+      "category": "implicit_continue",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.557847,
+      "goal_similarity": 0.562751,
+      "anchor_similarity": 0.642274,
+      "similarity": 0.562751
+    },
+    {
+      "id": "hold-implicit-continue-02",
+      "category": "implicit_continue",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "continue",
+      "change_probability": 0.496309,
+      "goal_similarity": 0.507251,
+      "anchor_similarity": 0.640887,
+      "similarity": 0.507251
+    },
+    {
+      "id": "hold-implicit-continue-03",
+      "category": "implicit_continue",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.590081,
+      "goal_similarity": 0.435067,
+      "anchor_similarity": 0.508521,
+      "similarity": 0.435067
+    },
+    {
+      "id": "hold-implicit-continue-04",
+      "category": "implicit_continue",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "continue",
+      "change_probability": 0.303291,
+      "goal_similarity": 0.585471,
+      "anchor_similarity": 0.73274,
+      "similarity": 0.585471
+    },
+    {
+      "id": "hold-implicit-continue-05",
+      "category": "implicit_continue",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "hybrid_v2": "continue",
+      "change_probability": 0.451748,
+      "goal_similarity": 0.473995,
+      "anchor_similarity": 0.607471,
+      "similarity": 0.473995
+    },
+    {
+      "id": "hold-implicit-continue-06",
+      "category": "implicit_continue",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "continue",
+      "change_probability": 0.486324,
+      "goal_similarity": 0.613163,
+      "anchor_similarity": 0.691589,
+      "similarity": 0.613163
+    },
+    {
+      "id": "hold-implicit-continue-07",
+      "category": "implicit_continue",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.553084,
+      "goal_similarity": 0.595415,
+      "anchor_similarity": 0.674808,
+      "similarity": 0.595415
+    },
+    {
+      "id": "hold-implicit-continue-08",
+      "category": "implicit_continue",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "hybrid_v2": "continue",
+      "change_probability": 0.223441,
+      "goal_similarity": 0.362597,
+      "anchor_similarity": 0.555458,
+      "similarity": 0.362597
+    },
+    {
+      "id": "hold-implicit-continue-09",
+      "category": "implicit_continue",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "continue",
+      "change_probability": 0.475863,
+      "goal_similarity": 0.58179,
+      "anchor_similarity": 0.697308,
+      "similarity": 0.58179
+    },
+    {
+      "id": "hold-implicit-continue-10",
+      "category": "implicit_continue",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.580229,
+      "goal_similarity": 0.633555,
+      "anchor_similarity": 0.685246,
+      "similarity": 0.633555
+    },
+    {
+      "id": "hold-shared-change-01",
+      "category": "task_changed_shared_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.821047,
+      "goal_similarity": 0.501085,
+      "anchor_similarity": 0.576596,
+      "similarity": 0.501085
+    },
+    {
+      "id": "hold-shared-change-02",
+      "category": "task_changed_shared_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.804166,
+      "goal_similarity": 0.542265,
+      "anchor_similarity": 0.646727,
+      "similarity": 0.542265
+    },
+    {
+      "id": "hold-shared-change-03",
+      "category": "task_changed_shared_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.801246,
+      "goal_similarity": 0.437284,
+      "anchor_similarity": 0.565735,
+      "similarity": 0.437284
+    },
+    {
+      "id": "hold-shared-change-04",
+      "category": "task_changed_shared_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.838494,
+      "goal_similarity": 0.602244,
+      "anchor_similarity": 0.699262,
+      "similarity": 0.602244
+    },
+    {
+      "id": "hold-shared-change-05",
+      "category": "task_changed_shared_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.656256,
+      "goal_similarity": 0.708595,
+      "anchor_similarity": 0.831389,
+      "similarity": 0.708595
+    },
+    {
+      "id": "hold-shared-change-06",
+      "category": "task_changed_shared_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.793276,
+      "goal_similarity": 0.615546,
+      "anchor_similarity": 0.694631,
+      "similarity": 0.615546
+    },
+    {
+      "id": "hold-shared-change-07",
+      "category": "task_changed_shared_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.810386,
+      "goal_similarity": 0.482839,
+      "anchor_similarity": 0.584743,
+      "similarity": 0.482839
+    },
+    {
+      "id": "hold-shared-change-08",
+      "category": "task_changed_shared_domain",
+      "expected": "task_changed",
+      "current_rule": "continue",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.7666,
+      "goal_similarity": 0.502885,
+      "anchor_similarity": 0.564983,
+      "similarity": 0.502885
+    },
+    {
+      "id": "hold-shared-change-09",
+      "category": "task_changed_shared_domain",
+      "expected": "task_changed",
+      "current_rule": "continue",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.825826,
+      "goal_similarity": 0.579784,
+      "anchor_similarity": 0.649931,
+      "similarity": 0.579784
+    },
+    {
+      "id": "hold-shared-change-10",
+      "category": "task_changed_shared_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.837682,
+      "goal_similarity": 0.648387,
+      "anchor_similarity": 0.734942,
+      "similarity": 0.648387
+    },
+    {
+      "id": "hold-shared-change-11",
+      "category": "task_changed_shared_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.792211,
+      "goal_similarity": 0.406686,
+      "anchor_similarity": 0.501248,
+      "similarity": 0.406686
+    },
+    {
+      "id": "hold-shared-change-12",
+      "category": "task_changed_shared_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.825367,
+      "goal_similarity": 0.565753,
+      "anchor_similarity": 0.686952,
+      "similarity": 0.565753
+    },
+    {
+      "id": "hold-cross-change-01",
+      "category": "task_changed_cross_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.798992,
+      "goal_similarity": 0.286611,
+      "anchor_similarity": 0.408537,
+      "similarity": 0.286611
+    },
+    {
+      "id": "hold-cross-change-02",
+      "category": "task_changed_cross_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.80352,
+      "goal_similarity": 0.31011,
+      "anchor_similarity": 0.430564,
+      "similarity": 0.31011
+    },
+    {
+      "id": "hold-cross-change-03",
+      "category": "task_changed_cross_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.523868,
+      "goal_similarity": 0.243937,
+      "anchor_similarity": 0.253005,
+      "similarity": 0.243937
+    },
+    {
+      "id": "hold-cross-change-04",
+      "category": "task_changed_cross_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.827682,
+      "goal_similarity": 0.55543,
+      "anchor_similarity": 0.679629,
+      "similarity": 0.55543
+    },
+    {
+      "id": "hold-cross-change-05",
+      "category": "task_changed_cross_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.57033,
+      "goal_similarity": 0.373932,
+      "anchor_similarity": 0.484212,
+      "similarity": 0.373932
+    },
+    {
+      "id": "hold-cross-change-06",
+      "category": "task_changed_cross_domain",
+      "expected": "task_changed",
+      "current_rule": "continue",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.829243,
+      "goal_similarity": 0.413559,
+      "anchor_similarity": 0.565073,
+      "similarity": 0.413559
+    },
+    {
+      "id": "hold-cross-change-07",
+      "category": "task_changed_cross_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.820048,
+      "goal_similarity": 0.572179,
+      "anchor_similarity": 0.642372,
+      "similarity": 0.572179
+    },
+    {
+      "id": "hold-cross-change-08",
+      "category": "task_changed_cross_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.785893,
+      "goal_similarity": 0.360021,
+      "anchor_similarity": 0.411817,
+      "similarity": 0.360021
+    },
+    {
+      "id": "hold-cross-change-09",
+      "category": "task_changed_cross_domain",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.773171,
+      "goal_similarity": 0.361514,
+      "anchor_similarity": 0.489002,
+      "similarity": 0.361514
+    },
+    {
+      "id": "hold-cross-change-10",
+      "category": "task_changed_cross_domain",
+      "expected": "task_changed",
+      "current_rule": "continue",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "hybrid_v2": "task_changed",
+      "change_probability": 0.849745,
+      "goal_similarity": 0.536904,
+      "anchor_similarity": 0.703155,
+      "similarity": 0.536904
+    }
+  ],
+  "repeat": {
+    "runs": 3,
+    "deterministic": true,
+    "decision_sha256": "0dc73df5a7601f976f8c4ee9ebb887426d1e9d7614018f10472225b90cdc6a28"
+  }
+}

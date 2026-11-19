@@ -7,12 +7,14 @@ It does not call the router HTTP service or any model provider.
 
 ```powershell
 python benchmarks\benchmark_task_change.py --repeat 3 --sweep
+python benchmarks\benchmark_task_change_hybrid.py --repeat 3
 ```
 
 Outputs:
 
 - console summary;
 - `benchmarks/task_change_benchmark_latest.json`;
+- `benchmarks/task_change_hybrid_latest.json`;
 - deterministic decision SHA-256 for repeated runs.
 
 ## Compared strategies
@@ -65,3 +67,27 @@ The initial result therefore rejects raw BGE cosine similarity as a standalone
 task-boundary classifier. The next candidate must combine stronger
 continuation/task-shift signals or use a small supervised task-boundary model,
 and it must be validated on a holdout set.
+
+## Independent holdout and hybrid candidate
+
+`task_change_holdout.jsonl` contains 52 cases that are not used to train the
+hybrid classifier. The candidate keeps explicit/session/tool rules
+deterministic and trains a small binary logistic model only for ambiguous user
+turns.
+
+| Strategy on 52 holdout cases | Accuracy | Macro F1 | False split | Missed change |
+|---|---:|---:|---:|---:|
+| current rule | 65.38% | 0.552 | 45.45% | 26.67% |
+| BGE semantic v1 | 71.15% | 0.597 | 13.64% | 40.00% |
+| rules + small classifier (`hybrid_v2`) | 92.31% | 0.705 | 18.18% | 0.00% |
+
+The hybrid candidate is promising but still experimental:
+
+- it eliminates missed task changes in this holdout;
+- it still splits 18.18% of same-task turns;
+- 28 ambiguous training cases are too few for production confidence;
+- three repeated runs produced the same decision SHA-256.
+
+Do not enable `hybrid_v2` in the router until it is validated on substantially
+more real multi-turn sessions and its model artifacts have a stable versioned
+format.
