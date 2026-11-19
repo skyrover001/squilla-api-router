@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 from uuid import uuid4
 
 from squilla_api_router.routing_state import (
     RequestIdentity,
     RoutingStateStore,
+    StateConflict,
     decide_intent,
     resolve_request_identity,
 )
@@ -240,6 +242,71 @@ def test_usage_ledger_roundtrip() -> None:
         assert calls[0].cost_units == 1000
         assert calls[0].task_class == "code"
         assert store.task_tier_profiles("code")["c2"][2] == 1
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_state_revision_conflict_and_ttl() -> None:
+    store, path = _new_store()
+    try:
+        identity = _identity()
+        first = store.put(
+            identity,
+            task_id="task-1",
+            task_anchor="anchor",
+            tier="c0",
+            route_class="R0",
+            model="m0",
+            provider="p",
+            api_format="openai_chat",
+            base_url="u",
+            thinking_mode="T0",
+            prompt_policy="P0",
+        )
+        second = store.put(
+            identity,
+            task_id="task-1",
+            task_anchor="anchor",
+            tier="c1",
+            route_class="R1",
+            model="m1",
+            provider="p",
+            api_format="openai_chat",
+            base_url="u",
+            thinking_mode="T1",
+            prompt_policy="P1",
+            previous=first,
+        )
+        assert second.revision == 2
+        try:
+            store.put(
+                identity,
+                task_id="task-1",
+                task_anchor="anchor",
+                tier="c0",
+                route_class="R0",
+                model="m0",
+                provider="p",
+                api_format="openai_chat",
+                base_url="u",
+                thinking_mode="T0",
+                prompt_policy="P0",
+                previous=first,
+            )
+        except StateConflict:
+            pass
+        else:
+            raise AssertionError("stale revision was not rejected")
+
+        ttl_store = RoutingStateStore(path, ttl_seconds=1)
+        connection = sqlite3.connect(path)
+        connection.execute(
+            "UPDATE routing_state SET updated_at = updated_at - 10 WHERE session_id = ?",
+            (identity.session_id,),
+        )
+        connection.commit()
+        connection.close()
+        assert ttl_store.get(identity.session_id) is None
     finally:
         path.unlink(missing_ok=True)
 

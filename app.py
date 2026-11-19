@@ -65,6 +65,7 @@ from squilla_api_router.routing_state import (
     RequestIdentity,
     RouteState,
     RoutingStateStore,
+    StateConflict,
     decide_intent,
     resolve_request_identity,
 )
@@ -1980,7 +1981,11 @@ def _routing_state_store() -> RoutingStateStore | None:
     global _ROUTING_STATE_STORE
     if _ROUTING_STATE_STORE is None:
         try:
-            _ROUTING_STATE_STORE = RoutingStateStore()
+            _ROUTING_STATE_STORE = RoutingStateStore(
+                ttl_seconds=float(
+                    os.environ.get("ROUTER_STATE_TTL_SECONDS", "86400")
+                )
+            )
         except Exception as exc:
             logger.warning("routing state unavailable: %s", exc)
             return None
@@ -2272,7 +2277,15 @@ def _record_session_route(
             previous=plan.previous,
         )
         if plan.previous and plan.previous.forced_intent:
-            store.clear_forced_intent(plan.identity.session_id)
+            store.clear_forced_intent(
+                plan.identity.session_id,
+                expected_reason=plan.previous.forced_reason or None,
+            )
+    except StateConflict:
+        logger.warning(
+            "routing state conflict for session %s; preserving newer writer",
+            plan.identity.session_id,
+        )
     except Exception as exc:
         logger.warning("failed to persist routing state: %s", exc)
 
@@ -2771,6 +2784,12 @@ async def delete_routing_state_endpoint(
     store = _routing_state_store()
     deleted = store.delete(session_id) if store else False
     return {"deleted": deleted, "session_id": session_id}
+
+
+@app.post("/admin/purge-state")
+async def purge_routing_state_endpoint(_auth: bool = Depends(_verify_auth)):
+    store = _routing_state_store()
+    return {"purged": store.purge_expired() if store else 0}
 
 
 @app.get("/admin/routing-usage")

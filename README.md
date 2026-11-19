@@ -186,6 +186,10 @@ ROUTER_RATE_LIMIT_COOLDOWN_SECONDS=15
 
 usage 账本同时记录成功调用和失败尝试：HTTP 状态、错误类型、尝试延迟和冷却时间。
 
+Session 状态使用 revision 乐观并发控制，旧 revision 不能覆盖新状态。
+默认 24 小时过期，可通过 `ROUTER_STATE_TTL_SECONDS` 修改；
+`POST /admin/purge-state` 可手动清理过期状态。
+
 Router 还会检查 provider 返回的 tool call 结构。若 tool name 缺失、arguments
 不是合法 JSON object 或 Anthropic tool input 非法，会为当前 Session 标记一次
 自动 Redo，在下一轮请求中提升质量层。该检查不修改当前响应。

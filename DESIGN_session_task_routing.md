@@ -49,6 +49,8 @@ ROUTER_TASK_CHANGE_SIMILARITY=0.15
 
 State is stored in SQLite at `.squilla_router_state.db` in the running process
 working directory unless `ROUTER_STATE_DB` is set.
+State rows carry a monotonic revision for optimistic concurrency and a TTL.
+Stale writers are rejected rather than overwriting a newer task state.
 
 ## Observability
 

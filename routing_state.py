@@ -158,6 +158,7 @@ class RouteState:
     prompt_policy: str
     forced_intent: str
     forced_reason: str
+    revision: int
     turn_count: int
     updated_at: float
 
@@ -206,6 +207,10 @@ class RouteAttempt:
     error_type: str
     latency_s: float
     cooldown_s: float
+
+
+class StateConflict(RuntimeError):
+    pass
 
 
 def resolve_request_identity(
@@ -363,9 +368,14 @@ def decide_intent(
 
 
 class RoutingStateStore:
-    def __init__(self, path: str | os.PathLike[str] | None = None) -> None:
+    def __init__(
+        self,
+        path: str | os.PathLike[str] | None = None,
+        ttl_seconds: float = 86400.0,
+    ) -> None:
         default_path = Path.cwd() / ".squilla_router_state.db"
         self.path = Path(path or os.environ.get("ROUTER_STATE_DB") or default_path)
+        self.ttl_seconds = max(0.0, ttl_seconds)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
@@ -394,6 +404,7 @@ class RoutingStateStore:
                     prompt_policy TEXT NOT NULL,
                     forced_intent TEXT NOT NULL DEFAULT '',
                     forced_reason TEXT NOT NULL DEFAULT '',
+                    revision INTEGER NOT NULL DEFAULT 1,
                     turn_count INTEGER NOT NULL,
                     updated_at REAL NOT NULL
                 )
@@ -412,6 +423,15 @@ class RoutingStateStore:
             if "forced_reason" not in state_columns:
                 connection.execute(
                     "ALTER TABLE routing_state ADD COLUMN forced_reason TEXT NOT NULL DEFAULT ''"
+                )
+            if "revision" not in state_columns:
+                connection.execute(
+                    "ALTER TABLE routing_state ADD COLUMN revision INTEGER NOT NULL DEFAULT 1"
+                )
+            if self.ttl_seconds:
+                connection.execute(
+                    "DELETE FROM routing_state WHERE updated_at < ?",
+                    (time.time() - self.ttl_seconds,),
                 )
             connection.execute(
                 """
@@ -483,6 +503,12 @@ class RoutingStateStore:
             row = connection.execute(
                 "SELECT * FROM routing_state WHERE session_id = ?", (session_id,)
             ).fetchone()
+            if row and self.ttl_seconds and row["updated_at"] < time.time() - self.ttl_seconds:
+                connection.execute(
+                    "DELETE FROM routing_state WHERE session_id = ?", (session_id,)
+                )
+                connection.commit()
+                return None
         return RouteState(**dict(row)) if row else None
 
     def delete(self, session_id: str) -> bool:
@@ -491,6 +517,16 @@ class RoutingStateStore:
                 "DELETE FROM routing_state WHERE session_id = ?", (session_id,)
             )
         return cursor.rowcount > 0
+
+    def purge_expired(self) -> int:
+        if not self.ttl_seconds:
+            return 0
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                "DELETE FROM routing_state WHERE updated_at < ?",
+                (time.time() - self.ttl_seconds,),
+            )
+        return int(cursor.rowcount)
 
     def put(
         self,
@@ -510,48 +546,72 @@ class RoutingStateStore:
     ) -> RouteState:
         turn_count = (previous.turn_count + 1) if previous else 1
         updated_at = time.time()
+        revision = (previous.revision + 1) if previous else 1
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                INSERT INTO routing_state (
-                    session_id, task_id, task_anchor, system_hash, tools_hash,
-                    tier, route_class, model, provider, api_format, base_url,
-                    thinking_mode, prompt_policy, turn_count, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(session_id) DO UPDATE SET
-                    task_id=excluded.task_id,
-                    task_anchor=excluded.task_anchor,
-                    system_hash=excluded.system_hash,
-                    tools_hash=excluded.tools_hash,
-                    tier=excluded.tier,
-                    route_class=excluded.route_class,
-                    model=excluded.model,
-                    provider=excluded.provider,
-                    api_format=excluded.api_format,
-                    base_url=excluded.base_url,
-                    thinking_mode=excluded.thinking_mode,
-                    prompt_policy=excluded.prompt_policy,
-                    turn_count=excluded.turn_count,
-                    updated_at=excluded.updated_at
-                """,
-                (
-                    identity.session_id,
-                    task_id,
-                    task_anchor,
-                    identity.system_hash,
-                    identity.tools_hash,
-                    tier,
-                    route_class,
-                    model,
-                    provider,
-                    api_format,
-                    base_url,
-                    thinking_mode,
-                    prompt_policy,
-                    turn_count,
-                    updated_at,
-                ),
-            )
+            if previous is None:
+                try:
+                    connection.execute(
+                        """
+                        INSERT INTO routing_state (
+                            session_id, task_id, task_anchor, system_hash, tools_hash,
+                            tier, route_class, model, provider, api_format, base_url,
+                            thinking_mode, prompt_policy, forced_intent,
+                            forced_reason, revision, turn_count, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 1, ?, ?)
+                        """,
+                        (
+                            identity.session_id,
+                            task_id,
+                            task_anchor,
+                            identity.system_hash,
+                            identity.tools_hash,
+                            tier,
+                            route_class,
+                            model,
+                            provider,
+                            api_format,
+                            base_url,
+                            thinking_mode,
+                            prompt_policy,
+                            turn_count,
+                            updated_at,
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    raise StateConflict(identity.session_id) from exc
+            else:
+                cursor = connection.execute(
+                    """
+                    UPDATE routing_state SET
+                        task_id = ?, task_anchor = ?, system_hash = ?,
+                        tools_hash = ?, tier = ?, route_class = ?, model = ?,
+                        provider = ?, api_format = ?, base_url = ?,
+                        thinking_mode = ?, prompt_policy = ?, revision = ?,
+                        turn_count = ?, updated_at = ?
+                    WHERE session_id = ? AND revision = ?
+                    """,
+                    (
+                        task_id,
+                        task_anchor,
+                        identity.system_hash,
+                        identity.tools_hash,
+                        tier,
+                        route_class,
+                        model,
+                        provider,
+                        api_format,
+                        base_url,
+                        thinking_mode,
+                        prompt_policy,
+                        revision,
+                        turn_count,
+                        updated_at,
+                        identity.session_id,
+                        previous.revision,
+                    ),
+                )
+                if cursor.rowcount == 0:
+                    raise StateConflict(identity.session_id)
         return RouteState(
             session_id=identity.session_id,
             task_id=task_id,
@@ -568,6 +628,7 @@ class RoutingStateStore:
             prompt_policy=prompt_policy,
             forced_intent=previous.forced_intent if previous else "",
             forced_reason=previous.forced_reason if previous else "",
+            revision=revision,
             turn_count=turn_count,
             updated_at=updated_at,
         )
@@ -581,22 +642,31 @@ class RoutingStateStore:
             cursor = connection.execute(
                 """
                 UPDATE routing_state
-                SET forced_intent = ?, forced_reason = ?, updated_at = ?
+                SET forced_intent = ?, forced_reason = ?, updated_at = ?,
+                    revision = revision + 1
                 WHERE session_id = ?
                 """,
                 (intent, reason[:500], time.time(), session_id),
             )
         return cursor.rowcount > 0
 
-    def clear_forced_intent(self, session_id: str) -> bool:
+    def clear_forced_intent(
+        self, session_id: str, expected_reason: str | None = None
+    ) -> bool:
+        where = "session_id = ?"
+        args: list[Any] = [time.time(), session_id]
+        if expected_reason is not None:
+            where += " AND forced_reason = ?"
+            args.append(expected_reason)
         with closing(self._connect()) as connection, connection:
             cursor = connection.execute(
-                """
+                f"""
                 UPDATE routing_state
-                SET forced_intent = '', forced_reason = '', updated_at = ?
-                WHERE session_id = ?
+                SET forced_intent = '', forced_reason = '', updated_at = ?,
+                    revision = revision + 1
+                WHERE {where}
                 """,
-                (time.time(), session_id),
+                tuple(args),
             )
         return cursor.rowcount > 0
     def record_call(
