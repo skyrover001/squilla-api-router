@@ -29,9 +29,7 @@ foreach ($f in @("app.py", ".env", "_formats_rosetta.py",
     Copy-Item "$SrcDir\$f" "$RunDir\$f" -Force
 }
 Copy-Item "$SrcDir\_run_server.py" "$RunDir\_run_server.py" -Force
-if (-not (Test-Path "$RunDir\model_bundle\router.runtime.yaml")) {
-    Copy-Item "$SrcDir\model_bundle\*" "$RunDir\model_bundle\" -Recurse -Force
-}
+Copy-Item "$SrcDir\model_bundle\*" "$RunDir\model_bundle\" -Recurse -Force
 
 # 2) Stop any previous instance listening on this port.
 $old = netstat -ano | Select-String ":$Port\s" | Select-Object -First 1

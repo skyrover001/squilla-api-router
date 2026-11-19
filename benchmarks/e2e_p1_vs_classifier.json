@@ -1,0 +1,223 @@
+{
+  "summary": {
+    "tasks": 4,
+    "classifier_cost_units": 413410,
+    "cost_aware_units": 699700,
+    "cost_reduction_pct": -69.25,
+    "classifier_latency_s": 29.692,
+    "cost_aware_latency_s": 17.638,
+    "latency_reduction_pct": 40.6
+  },
+  "rows": [
+    {
+      "task": "json",
+      "prompt": "写一个 Python 脚本读取 JSON 文件并打印指定字段。",
+      "classifier": {
+        "status": 200,
+        "policy": "classifier",
+        "classifier_tier": null,
+        "cost_aware": null,
+        "route_tier": "c0",
+        "model": "Qwen3.8-27B",
+        "tier": "c0",
+        "reasoning": "router:low",
+        "usage": {
+          "completion_tokens": 518,
+          "prompt_tokens": 81,
+          "total_tokens": 599
+        },
+        "cost_units": 21530,
+        "latency_s": 10.115
+      },
+      "cost_aware": {
+        "status": 200,
+        "policy": "cost_aware",
+        "classifier_tier": "c1",
+        "cost_aware": "1",
+        "route_tier": "R2",
+        "model": "GLM-5.3-Flash",
+        "tier": "c2",
+        "reasoning": "router:medium",
+        "usage": {
+          "completion_tokens": 399,
+          "completion_tokens_details": {
+            "reasoning_tokens": 119
+          },
+          "prompt_tokens": 53,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "created_cache_tokens": 0
+          },
+          "total_tokens": 452
+        },
+        "cost_units": 164900,
+        "latency_s": 3.855
+      },
+      "comparison": {
+        "cost_reduction_pct": -665.91,
+        "latency_reduction_pct": 61.89
+      }
+    },
+    {
+      "task": "pytest",
+      "prompt": "为 add(a,b) 写 pytest 单元测试，覆盖正常值和异常值。",
+      "classifier": {
+        "status": 200,
+        "policy": "classifier",
+        "classifier_tier": null,
+        "cost_aware": null,
+        "route_tier": "c0",
+        "model": "Qwen3.8-27B",
+        "tier": "c0",
+        "reasoning": "router:medium",
+        "usage": {
+          "completion_tokens": 620,
+          "prompt_tokens": 58,
+          "total_tokens": 678
+        },
+        "cost_units": 25380,
+        "latency_s": 10.565
+      },
+      "cost_aware": {
+        "status": 200,
+        "policy": "cost_aware",
+        "classifier_tier": "c1",
+        "cost_aware": "1",
+        "route_tier": "R2",
+        "model": "GLM-5.3-Flash",
+        "tier": "c2",
+        "reasoning": "router:medium",
+        "usage": {
+          "completion_tokens": 479,
+          "completion_tokens_details": {
+            "reasoning_tokens": 81
+          },
+          "prompt_tokens": 55,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "created_cache_tokens": 0
+          },
+          "total_tokens": 534
+        },
+        "cost_units": 197100,
+        "latency_s": 4.453
+      },
+      "comparison": {
+        "cost_reduction_pct": -676.6,
+        "latency_reduction_pct": 57.85
+      }
+    },
+    {
+      "task": "jwt",
+      "prompt": "用三个要点解释 JWT 的组成和常见安全风险。",
+      "classifier": {
+        "status": 200,
+        "policy": "classifier",
+        "classifier_tier": null,
+        "cost_aware": null,
+        "route_tier": "R2",
+        "model": "GLM-5.3-Flash",
+        "tier": "c2",
+        "reasoning": "router:medium",
+        "usage": {
+          "completion_tokens": 381,
+          "completion_tokens_details": {
+            "reasoning_tokens": 114
+          },
+          "prompt_tokens": 49,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "created_cache_tokens": 0
+          },
+          "total_tokens": 430
+        },
+        "cost_units": 157300,
+        "latency_s": 4.583
+      },
+      "cost_aware": {
+        "status": 200,
+        "policy": "cost_aware",
+        "classifier_tier": "c2",
+        "cost_aware": "0",
+        "route_tier": "R2",
+        "model": "GLM-5.3-Flash",
+        "tier": "c2",
+        "reasoning": "router:medium",
+        "usage": {
+          "completion_tokens": 424,
+          "completion_tokens_details": {
+            "reasoning_tokens": 105
+          },
+          "prompt_tokens": 49,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "created_cache_tokens": 0
+          },
+          "total_tokens": 473
+        },
+        "cost_units": 174500,
+        "latency_s": 5.235
+      },
+      "comparison": {
+        "cost_reduction_pct": -10.93,
+        "latency_reduction_pct": -14.23
+      }
+    },
+    {
+      "task": "retry",
+      "prompt": "写一个带重试、超时和指数退避的 HTTP 客户端。",
+      "classifier": {
+        "status": 200,
+        "policy": "classifier",
+        "classifier_tier": null,
+        "cost_aware": null,
+        "route_tier": "R2",
+        "model": "GLM-5.3-Flash",
+        "tier": "c2",
+        "reasoning": "router:high",
+        "usage": {
+          "completion_tokens": 509,
+          "completion_tokens_details": {
+            "reasoning_tokens": 33
+          },
+          "prompt_tokens": 56,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "created_cache_tokens": 0
+          },
+          "total_tokens": 565
+        },
+        "cost_units": 209200,
+        "latency_s": 4.429
+      },
+      "cost_aware": {
+        "status": 200,
+        "policy": "cost_aware",
+        "classifier_tier": "c2",
+        "cost_aware": "0",
+        "route_tier": "R2",
+        "model": "GLM-5.3-Flash",
+        "tier": "c2",
+        "reasoning": "router:high",
+        "usage": {
+          "completion_tokens": 394,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          },
+          "prompt_tokens": 56,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "created_cache_tokens": 0
+          },
+          "total_tokens": 450
+        },
+        "cost_units": 163200,
+        "latency_s": 4.095
+      },
+      "comparison": {
+        "cost_reduction_pct": 21.99,
+        "latency_reduction_pct": 7.54
+      }
+    }
+  ]
+}

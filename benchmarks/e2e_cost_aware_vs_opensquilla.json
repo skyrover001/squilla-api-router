@@ -1,0 +1,47 @@
+{
+  "task": "写一个 Python 脚本读取 JSON 文件并打印指定字段。",
+  "router_cost_aware": {
+    "status": 200,
+    "classifier_tier": "c1",
+    "cost_aware": "1",
+    "tier": "R2",
+    "model": "GLM-5.3-Flash",
+    "reasoning": "router:medium",
+    "usage": {
+      "completion_tokens": 700,
+      "completion_tokens_details": {
+        "reasoning_tokens": 355
+      },
+      "prompt_tokens": 53,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "created_cache_tokens": 0
+      },
+      "total_tokens": 753
+    },
+    "cost_units": 285300,
+    "latency_s": 5.459
+  },
+  "opensquilla_style_c1": {
+    "status": 200,
+    "tier": "c1",
+    "model": "Qwen3.5-397B-A17B",
+    "reasoning": "low",
+    "usage": {
+      "prompt_tokens": 68,
+      "completion_tokens": 5717,
+      "total_tokens": 5785,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      }
+    },
+    "cost_units": 917440,
+    "latency_s": 49.117,
+    "source": "historical_e2e_same_prompt"
+  },
+  "baseline_source": "historical_e2e_same_prompt",
+  "comparison": {
+    "cost_reduction_pct": 68.9,
+    "latency_reduction_pct": 88.89
+  }
+}

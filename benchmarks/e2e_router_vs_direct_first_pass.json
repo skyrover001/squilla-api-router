@@ -1,0 +1,316 @@
+{
+  "summary": {
+    "task_count": 8,
+    "routed_tokens": 6684,
+    "direct_tokens": 6859,
+    "token_saving_pct": 2.55,
+    "routed_total_latency_s": 109.436,
+    "direct_total_latency_s": 122.086,
+    "latency_reduction_pct": 10.36
+  },
+  "results": [
+    {
+      "task": "t0_translate",
+      "prompt": "把 hello world 翻译成中文。",
+      "routed": {
+        "status": 200,
+        "tier": "R0",
+        "model": "Qwen3.8-27B",
+        "ttft_s": 1.844,
+        "latency_s": 2.368,
+        "usage": {
+          "completion_tokens": 53,
+          "prompt_tokens": 47,
+          "total_tokens": 100
+        },
+        "output_chars": 34,
+        "retries": 0
+      },
+      "direct": {
+        "status": 200,
+        "tier": "direct",
+        "model": "DeepSeek-V4.1-Flash",
+        "ttft_s": 2.655,
+        "latency_s": 2.655,
+        "usage": {
+          "input_tokens": 38,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 47,
+          "total_tokens": 85
+        },
+        "output_chars": 25,
+        "retries": 0
+      }
+    },
+    {
+      "task": "t1_palindrome",
+      "prompt": "写一个 Python 函数判断字符串是否为回文。",
+      "routed": {
+        "status": 200,
+        "tier": "R0",
+        "model": "Qwen3.8-27B",
+        "ttft_s": 2.582,
+        "latency_s": 8.944,
+        "usage": {
+          "completion_tokens": 685,
+          "prompt_tokens": 51,
+          "total_tokens": 736
+        },
+        "output_chars": 1678,
+        "retries": 0
+      },
+      "direct": {
+        "status": 200,
+        "tier": "direct",
+        "model": "DeepSeek-V4.1-Flash",
+        "ttft_s": 5.523,
+        "latency_s": 5.699,
+        "usage": {
+          "input_tokens": 41,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 310,
+          "total_tokens": 351
+        },
+        "output_chars": 433,
+        "retries": 0
+      }
+    },
+    {
+      "task": "r1_json",
+      "prompt": "帮我写一个简单的 Python 脚本读取 JSON 文件并打印字段。",
+      "routed": {
+        "status": 200,
+        "tier": "R1",
+        "model": "Qwen3.5-397B-A17B",
+        "ttft_s": 3.695,
+        "latency_s": 7.558,
+        "usage": {
+          "prompt_tokens": 24,
+          "completion_tokens": 544,
+          "total_tokens": 568,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "output_chars": 1426,
+        "retries": 0
+      },
+      "direct": {
+        "status": 200,
+        "tier": "direct",
+        "model": "DeepSeek-V4.1-Flash",
+        "ttft_s": 7.011,
+        "latency_s": 11.905,
+        "usage": {
+          "input_tokens": 45,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 1024,
+          "total_tokens": 1069
+        },
+        "output_chars": 1821,
+        "retries": 0
+      }
+    },
+    {
+      "task": "r1_upload",
+      "prompt": "设计一个支持断点续传的文件上传接口。",
+      "routed": {
+        "status": 200,
+        "tier": "R1",
+        "model": "Qwen3.5-397B-A17B",
+        "ttft_s": 3.332,
+        "latency_s": 11.296,
+        "usage": {
+          "prompt_tokens": 21,
+          "completion_tokens": 1024,
+          "total_tokens": 1045,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "output_chars": 2197,
+        "retries": 0
+      },
+      "direct": {
+        "status": 200,
+        "tier": "direct",
+        "model": "DeepSeek-V4.1-Flash",
+        "ttft_s": 0,
+        "latency_s": 18.376,
+        "usage": {
+          "input_tokens": 41,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 1024,
+          "total_tokens": 1065
+        },
+        "output_chars": 0,
+        "retries": 0
+      }
+    },
+    {
+      "task": "r2_502",
+      "prompt": "排查 FastAPI 接口偶发 502 的常见原因，并给出诊断步骤。",
+      "routed": {
+        "status": 200,
+        "tier": "R2",
+        "model": "GLM-5.3-Flash",
+        "ttft_s": 3.168,
+        "latency_s": 10.044,
+        "usage": {
+          "completion_tokens": 1024,
+          "completion_tokens_details": {
+            "reasoning_tokens": 1024
+          },
+          "prompt_tokens": 32,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "created_cache_tokens": 0
+          },
+          "total_tokens": 1056
+        },
+        "output_chars": 0,
+        "retries": 0
+      },
+      "direct": {
+        "status": 200,
+        "tier": "direct",
+        "model": "DeepSeek-V4.1-Flash",
+        "ttft_s": 0,
+        "latency_s": 22.861,
+        "usage": {
+          "input_tokens": 49,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 1024,
+          "total_tokens": 1073
+        },
+        "output_chars": 0,
+        "retries": 0
+      }
+    },
+    {
+      "task": "r2_retry",
+      "prompt": "写一个带重试、超时和指数退避的 HTTP 客户端。",
+      "routed": {
+        "status": 200,
+        "tier": "R2",
+        "model": "GLM-5.3-Flash",
+        "ttft_s": 2.739,
+        "latency_s": 8.587,
+        "usage": {
+          "completion_tokens": 1024,
+          "completion_tokens_details": {
+            "reasoning_tokens": 125
+          },
+          "prompt_tokens": 31,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "created_cache_tokens": 0
+          },
+          "total_tokens": 1055
+        },
+        "output_chars": 3416,
+        "retries": 0
+      },
+      "direct": {
+        "status": 200,
+        "tier": "direct",
+        "model": "DeepSeek-V4.1-Flash",
+        "ttft_s": 0,
+        "latency_s": 15.015,
+        "usage": {
+          "input_tokens": 47,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 1024,
+          "total_tokens": 1071
+        },
+        "output_chars": 0,
+        "retries": 0
+      }
+    },
+    {
+      "task": "r3_order",
+      "prompt": "设计一个分布式订单系统，保证幂等、消息可靠投递和故障恢复，并给出核心代码。",
+      "routed": {
+        "status": 200,
+        "tier": "c0",
+        "model": "Qwen3.8-27B",
+        "ttft_s": 21.744,
+        "latency_s": 32.222,
+        "usage": {
+          "completion_tokens": 1024,
+          "prompt_tokens": 32,
+          "total_tokens": 1056
+        },
+        "output_chars": 2562,
+        "retries": 0
+      },
+      "direct": {
+        "status": 200,
+        "tier": "direct",
+        "model": "DeepSeek-V4.1-Flash",
+        "ttft_s": 0,
+        "latency_s": 27.551,
+        "usage": {
+          "input_tokens": 53,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 1024,
+          "total_tokens": 1077
+        },
+        "output_chars": 0,
+        "retries": 0
+      }
+    },
+    {
+      "task": "r3_sql",
+      "prompt": "帮我优化一条慢 SQL，分析索引、执行计划和改写方案。",
+      "routed": {
+        "status": 200,
+        "tier": "R3",
+        "model": "DeepSeek-V4.1-Flash",
+        "ttft_s": 23.365,
+        "latency_s": 28.417,
+        "usage": {
+          "prompt_tokens": 44,
+          "completion_tokens": 1024,
+          "total_tokens": 1068,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "output_chars": 753,
+        "retries": 0
+      },
+      "direct": {
+        "status": 200,
+        "tier": "direct",
+        "model": "DeepSeek-V4.1-Flash",
+        "ttft_s": 15.564,
+        "latency_s": 18.024,
+        "usage": {
+          "input_tokens": 44,
+          "input_tokens_details": {
+            "cached_tokens": 0
+          },
+          "output_tokens": 1024,
+          "total_tokens": 1068
+        },
+        "output_chars": 775,
+        "retries": 0
+      }
+    }
+  ]
+}

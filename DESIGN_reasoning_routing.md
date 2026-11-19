@@ -89,20 +89,30 @@
 ### 4.1 每个 tier 声明自己的能力
 
 ```env
-# --- c1 = GLM-5.3-Flash：可控思维 ---
+# --- c0 = Qwen3.8-27B：支持 low/medium/xhigh，非连续能力 ---
+C0_REASONING_MODES=auto,enabled,disabled
+C0_REASONING_EFFORTS=low,medium,xhigh
+C0_REASONING_DEFAULT_MODE=auto
+
+# --- c1 = Qwen3.5-397B-A17B：完整 effort 区间 ---
 C1_REASONING_MODES=auto,enabled,disabled
-C1_REASONING_EFFORT_MIN=low
-C1_REASONING_EFFORT_MAX=high
+C1_REASONING_EFFORT_MIN=minimal
+C1_REASONING_EFFORT_MAX=max
 C1_REASONING_DEFAULT_MODE=auto
 
-# --- c3 = deepseek-flash：关不掉思考 ---
-C3_REASONING_MODES=auto,enabled
-C3_REASONING_EFFORT_MIN=low
-C3_REASONING_EFFORT_MAX=max
-C3_REASONING_BUDGET_RATIO=0.5
+# --- c2 = GLM-5.3-Flash：完整 effort 区间 ---
+C2_REASONING_MODES=auto,enabled,disabled
+C2_REASONING_EFFORT_MIN=minimal
+C2_REASONING_EFFORT_MAX=max
+C2_REASONING_DEFAULT_MODE=auto
 
-# --- c0 = Qwen3.8-27B：不支持思维控制 ---
-# 什么都不写
+# --- c3 = DeepSeek-V4.1-Flash：完整 effort 区间 ---
+C3_REASONING_MODES=auto,enabled,disabled
+C3_REASONING_EFFORT_MIN=minimal
+C3_REASONING_EFFORT_MAX=max
+C3_REASONING_DEFAULT_MODE=auto
+
+# 两个都写时，EFFORTS 白名单会再按 MIN/MAX 过滤。
 ```
 
 **语义约定**
@@ -111,6 +121,7 @@ C3_REASONING_BUDGET_RATIO=0.5
 |---|---|
 | `REASONING_MODES` | 缺省 = **不支持**（保守，避免给老模型发未知字段） |
 | `REASONING_EFFORT_MIN/MAX` | 缺省 = 使用该协议的默认区间 |
+| `REASONING_EFFORTS` | 可选逗号白名单；用于 `low,medium,xhigh` 这类非连续能力 |
 | `REASONING_DEFAULT_MODE` | 缺省 = `auto`（当模型支持 auto 时） |
 | `REASONING_BUDGET_RATIO` | 缺省 = 不自动推导 budget |
 
@@ -120,7 +131,7 @@ C3_REASONING_BUDGET_RATIO=0.5
 
 ```env
 ROUTER_REASONING_ENABLED=1        # 0 = 完全关闭（= 当前行为）
-ROUTER_REASONING_PRIORITY=agent   # agent | router
+ROUTER_REASONING_PRIORITY=router  # router（自动分类优先）| agent（agent 显式指定优先）
 
 THINKING_T0_EFFORT=minimal
 THINKING_T1_EFFORT=low
@@ -140,9 +151,12 @@ THINKING_T3_EFFORT=high
 
 ## 5. 优先级与合并算法
 
-### 5.1 默认优先级：agent 显式 > Router 推导
+### 5.1 优先级的两种模式
 
-`ROUTER_REASONING_PRIORITY=agent`（默认）
+项目 `.env` 默认使用 `ROUTER_REASONING_PRIORITY=router`：始终采用分类器的
+`T0-T3`，保证“模型档位 + 思维档位”来自同一次 Squilla 路由决策。
+
+下表描述可选的 `ROUTER_REASONING_PRIORITY=agent` 模式：
 
 | 情况 | 结果 |
 |---|---|

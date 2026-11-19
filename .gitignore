@@ -17,3 +17,13 @@ Thumbs.db
 # Local backups (may contain secrets)
 *.bak
 *.bak_*
+
+# Router runtime state
+.squilla_router_state.db
+.squilla_router_state.db-*
+
+# Generated end-to-end workspaces and pytest scratch files
+benchmarks/opencode_*_task/
+.tmp_pytest/
+pytest-cache-files-*/
+tests/.state-*.db

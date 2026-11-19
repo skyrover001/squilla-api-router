@@ -1,0 +1,140 @@
+{
+  "first": {
+    "session": "breaker-20d4bb3e",
+    "status": 200,
+    "tier": "c0",
+    "model": "Qwen3.8-27B",
+    "classifier_tier": "c1",
+    "latency_s": 13.26
+  },
+  "second": {
+    "session": "breaker-0075315e",
+    "status": 200,
+    "tier": "c0",
+    "model": "Qwen3.8-27B",
+    "classifier_tier": "c1",
+    "latency_s": 11.92
+  },
+  "first_usage": {
+    "session_id": "breaker-20d4bb3e",
+    "totals": {
+      "calls": 1,
+      "input_tokens": 54,
+      "cached_tokens": 0,
+      "output_tokens": 1127,
+      "reasoning_tokens": 0,
+      "latency_s": 12.375,
+      "cost_units": 45620,
+      "attempts": 2,
+      "failed_attempts": 1,
+      "cooldown_seconds": 60.0
+    },
+    "calls": [
+      {
+        "call_id": 102,
+        "session_id": "breaker-20d4bb3e",
+        "task_id": "78d90748da3048f7a93327dd683981a2",
+        "timestamp": 1795051349.422718,
+        "intent": "new_task",
+        "tier": "c0",
+        "route_class": "R0",
+        "model": "Qwen3.8-27B",
+        "provider": "tianhe",
+        "task_class": "code",
+        "input_tokens": 54,
+        "cached_tokens": 0,
+        "output_tokens": 1127,
+        "reasoning_tokens": 0,
+        "latency_s": 12.375,
+        "cost_units": 45620
+      }
+    ],
+    "attempts_detail": [
+      {
+        "attempt_id": 10,
+        "session_id": "breaker-20d4bb3e",
+        "task_id": "78d90748da3048f7a93327dd683981a2",
+        "timestamp": 1795051337.9756424,
+        "intent": "new_task",
+        "tier": "c1",
+        "route_class": "R1",
+        "model": "Qwen3.5-397B-A17B",
+        "provider": "starfire",
+        "success": 0,
+        "status_code": 503,
+        "error_type": "http_error",
+        "latency_s": 0.9059999999954016,
+        "cooldown_s": 60.0
+      },
+      {
+        "attempt_id": 11,
+        "session_id": "breaker-20d4bb3e",
+        "task_id": "78d90748da3048f7a93327dd683981a2",
+        "timestamp": 1795051349.405476,
+        "intent": "new_task",
+        "tier": "c0",
+        "route_class": "R0",
+        "model": "Qwen3.8-27B",
+        "provider": "tianhe",
+        "success": 1,
+        "status_code": 200,
+        "error_type": "",
+        "latency_s": 11.421999999998661,
+        "cooldown_s": 0.0
+      }
+    ]
+  },
+  "second_usage": {
+    "session_id": "breaker-0075315e",
+    "totals": {
+      "calls": 1,
+      "input_tokens": 54,
+      "cached_tokens": 0,
+      "output_tokens": 1144,
+      "reasoning_tokens": 0,
+      "latency_s": 11.391,
+      "cost_units": 46300,
+      "attempts": 1,
+      "failed_attempts": 0,
+      "cooldown_seconds": 0.0
+    },
+    "calls": [
+      {
+        "call_id": 103,
+        "session_id": "breaker-0075315e",
+        "task_id": "2646dbd46fb6483a8a93d788e17b3031",
+        "timestamp": 1795051361.3411794,
+        "intent": "new_task",
+        "tier": "c0",
+        "route_class": "R0",
+        "model": "Qwen3.8-27B",
+        "provider": "tianhe",
+        "task_class": "code",
+        "input_tokens": 54,
+        "cached_tokens": 0,
+        "output_tokens": 1144,
+        "reasoning_tokens": 0,
+        "latency_s": 11.390999999995984,
+        "cost_units": 46300
+      }
+    ],
+    "attempts_detail": [
+      {
+        "attempt_id": 12,
+        "session_id": "breaker-0075315e",
+        "task_id": "2646dbd46fb6483a8a93d788e17b3031",
+        "timestamp": 1795051361.3277178,
+        "intent": "new_task",
+        "tier": "c0",
+        "route_class": "R0",
+        "model": "Qwen3.8-27B",
+        "provider": "tianhe",
+        "success": 1,
+        "status_code": 200,
+        "error_type": "",
+        "latency_s": 11.375,
+        "cooldown_s": 0.0
+      }
+    ]
+  }
+}

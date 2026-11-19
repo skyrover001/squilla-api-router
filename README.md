@@ -6,14 +6,14 @@
 
 ```text
 你的智能体（OpenAI Chat / Anthropic Messages 格式）
-        ↓ http://127.0.0.1:8002
+        ↓ http://127.0.0.1:8021
 Squilla API Router（一个进程：ML 分类 → 策略门控 → 选模型 → 调用）
         ↓
 模型池
   c0 → Qwen3.8-27B（便宜快速）
-  c1 → glm-5.2（默认均衡）
-  c2 → glm-5.3-flash（中等偏强）
-  c3 → deepseek-flash（最强）
+  c1 → Qwen3.5-397B-A17B（均衡）
+  c2 → GLM-5.3-Flash（中等偏强）
+  c3 → DeepSeek-V4.1-Flash（最强）
 ```
 
 使用和 OpenSquilla 相同的 V4 Phase 3 ML 分类器（BGE + LightGBM + MLP），
@@ -102,10 +102,110 @@ Copy-Item .env.example .env
 pip install -r requirements.txt
 
 # 3. 启动
-uvicorn app:app --host 127.0.0.1 --port 8002
+uvicorn app:app --host 127.0.0.1 --port 8021
 ```
 
 ## 智能体接入
+
+### Session/Task 粘性路由
+
+Router 默认在同一个任务内保持 provider、model、API 格式和 endpoint 不变，
+以降低模型切换并提高 KV cache 连续性。此功能不修改任何用户消息或工具定义。
+
+```text
+X-Squilla-Session-Id: my-agent-session
+X-Squilla-Task-Id: optional-task-id
+X-Squilla-Intent: new_task | continue | redo | task_changed
+X-Squilla-Quality-Feedback: validation_failed | tool_failed | no_progress
+```
+
+未提供 session header 时，Router 会用首个用户目标、system/tools schema 和
+客户端指纹生成隐式 session。Continue 默认粘住当前模型；Redo 只升一级且不会
+静默降级；Task Changed 会创建新 task 并重新选择模型。
+Harness 检测到输出校验失败、tool call 失败或无进展时，可通过
+`X-Squilla-Quality-Feedback` 触发一次 Redo；该信号只影响路由，不修改请求。
+
+```env
+ROUTER_SESSION_STICKY=1
+ROUTER_TASK_CHANGE_SIMILARITY=0.15
+```
+
+响应会返回 `X-Squilla-*` 路由状态头。查看状态：
+
+```text
+GET /admin/routing-state?session_id=...
+```
+
+### 成本感知路由（P1）
+
+分类器给出的 tier 是最低质量约束。新任务允许在**不低于该 tier**的模型中
+按预计总成本重新选择；Continue 仍保持当前模型以保护缓存连续性。
+
+```env
+ROUTER_COST_AWARE_ENABLED=1
+ROUTER_MIN_PROFILE_OBSERVATIONS=3
+ROUTER_PRICE_C0_CACHE_HIT=1
+ROUTER_PRICE_C0_CACHE_MISS=10
+ROUTER_PRICE_C0_OUTPUT=40
+ROUTER_LARGE_CONTEXT_R2_TOKENS=25000
+ROUTER_LARGE_CONTEXT_R3_TOKENS=80000
+```
+
+响应头会标记：
+
+```text
+X-Squilla-Classifier-Tier
+X-Squilla-Cost-Aware
+X-Squilla-Large-Context-Floor
+```
+
+单次请求可在不修改 body 的情况下切换策略：
+
+```text
+X-Squilla-Cost-Policy: cost_aware
+X-Squilla-Cost-Policy: classifier
+```
+
+成本画像按任务类别分别记录：
+
+```text
+code / debug / design / explain / translate / math / tool / general
+```
+
+某个类别样本不足时，才回退到 tier 全局平均值。
+
+### 后端熔断（P1）
+
+失败或 429 后的模型会进入进程级冷却，期间优先跳过该 provider/model：
+
+```env
+ROUTER_CIRCUIT_BREAKER_ENABLED=1
+ROUTER_FAILURE_COOLDOWN_SECONDS=60
+ROUTER_RATE_LIMIT_COOLDOWN_SECONDS=15
+```
+
+usage 账本同时记录成功调用和失败尝试：HTTP 状态、错误类型、尝试延迟和冷却时间。
+
+Router 还会检查 provider 返回的 tool call 结构。若 tool name 缺失、arguments
+不是合法 JSON object 或 Anthropic tool input 非法，会为当前 Session 标记一次
+自动 Redo，在下一轮请求中提升质量层。该检查不修改当前响应。
+
+### OpenCode 多轮工具 A/B（P1）
+
+同一任务分别使用 `router/router` 和固定
+`starfire-jd/DeepSeek-V4.1-Flash` 运行，两个方案均通过 pytest：
+
+| 指标 | Router/c0 | 固定 c3 |
+|---|---:|---:|
+| 模型轮次 | 3 | 4 |
+| 工具调用 | 3 | 4 |
+| 总 tokens | 28,584 | 37,364 |
+| cache read | 0 | 29,568 |
+| 成本单位 | 299,160 | 2,434,360 |
+| 工具任务耗时 | 25.32s | 23.65s |
+
+Router 成本低约 **87.7%**，但当时 tianhe c0 未返回 cache hit，
+完整工具任务耗时慢约 **7.1%**。
 
 ### Codex / Claude Code（Anthropic Messages 格式）
 
@@ -114,7 +214,7 @@ uvicorn app:app --host 127.0.0.1 --port 8002
 ```json
 {
   "env": {
-    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8002",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8021",
     "ANTHROPIC_API_KEY": "anything"
   }
 }
@@ -126,7 +226,7 @@ uvicorn app:app --host 127.0.0.1 --port 8002
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="http://127.0.0.1:8002/v1",
+    base_url="http://127.0.0.1:8021/v1",
     api_key="anything",
 )
 response = client.chat.completions.create(
@@ -141,8 +241,13 @@ response = client.chat.completions.create(
 
 - **触发条件**：连接失败、超时、HTTP 429/5xx/4xx、或响应无有效内容
 - **降级顺序**：选中的档位 → 其余档位按 c0/c1/c2/c3 顺序尝试
-- **图片请求**：只在支持图片的档位（c0/c1/c3）内降级
+- **图片请求**：只在支持图片的档位（当前 c0-c3）内降级
 - **全部失败**：返回最后一个错误 + `_router.attempts` 列出所有尝试
+
+流式请求会等待首个有效内容事件，超过 `BACKEND_STREAM_START_TIMEOUT`
+（默认 30 秒）就切换到下一档，不会无限挂起。首个内容到达后会立即转发，
+后续空闲超过 `BACKEND_STREAM_IDLE_TIMEOUT`（默认 300 秒）才终止。
+`T0/T1` 简单请求使用更短的 `BACKEND_STREAM_FAST_START_TIMEOUT`（默认 8 秒）。
 
 响应 `_router` 新增字段：
 
@@ -150,7 +255,7 @@ response = client.chat.completions.create(
 {
   "_router": {
     "tier": "c1",
-    "model": "glm-5.2",
+    "model": "Qwen3.5-397B-A17B",
     "attempts": ["R0", "c0", "c1"],
     "fallback_used": true
   }
@@ -179,7 +284,7 @@ OpenCode / 智能体接入时：
     "router": {
       "npm": "@ai-sdk/openai-compatible",
       "options": {
-        "baseURL": "http://127.0.0.1:8002/v1",
+        "baseURL": "http://127.0.0.1:8021/v1",
         "apiKey": "router-local-key-001"
       }
     }
@@ -201,20 +306,22 @@ BACKEND_API_KEY=your-key
 # 每个 tier：只填模型 + 能力标志
 C0_MODEL=Qwen3.8-27B
 C0_SUPPORTS_IMAGE=1
-C0_SUPPORTS_VIDEO=1
+C0_SUPPORTS_VIDEO=0
 
-C1_MODEL=glm-5.2
+C1_PROVIDER=starfire
+C1_MODEL=Qwen3.5-397B-A17B
 C1_SUPPORTS_IMAGE=1
-C1_SUPPORTS_VIDEO=1
+C1_SUPPORTS_VIDEO=0
 
-C2_MODEL=glm-5.3-flash
-C2_SUPPORTS_IMAGE=0
-C2_SUPPORTS_VIDEO=0
+C2_PROVIDER=tianhe
+C2_MODEL=GLM-5.3-Flash
+C2_SUPPORTS_IMAGE=1
+C2_SUPPORTS_VIDEO=1
 
-C3_PROVIDER=deepseek
-C3_MODEL=deepseek-flash
+C3_PROVIDER=starfire
+C3_MODEL=DeepSeek-V4.1-Flash
 C3_SUPPORTS_IMAGE=1
-C3_SUPPORTS_VIDEO=1
+C3_SUPPORTS_VIDEO=0
 ```
 
 ### 配置多个 Provider（无需改代码）
@@ -239,17 +346,17 @@ C2_MODEL=deepseek-chat
 - 任何 `C<数字>_MODEL` 按数字排序自动生成档位 `c0..cN`（数量不限）
 - `C<N>_PROVIDER` 默认 `tianhe`（`BACKEND_*` 前缀即该 provider 的别名）
 
-## 思维强度路由（可选）
+## 思维强度路由（默认开启，可关闭）
 
 Router 的 ML 分类器本身就会给出一个思维档（`T0`–`T3`）。
-默认情况下它只写入 `_router` 元数据；开启后会按**选中模型自己声明的能力**转成
-各家原生写法并下发。
+开启后会按**选中模型自己声明的能力**转成各家原生写法并下发。
 
-**默认关闭**，不配置就与以前行为完全一致。
+本仓库 `.env.example` 默认设置 `ROUTER_REASONING_ENABLED=1`；
+删掉该变量会回退到只记录 `_router` 元数据、不向后端下发思维参数。
 
 ```env
 ROUTER_REASONING_ENABLED=1
-ROUTER_REASONING_PRIORITY=agent   # agent（默认，agent 显式指定优先）| router
+ROUTER_REASONING_PRIORITY=router  # router（自动分类优先）| agent（agent 显式指定优先）
 
 # T0-T3 -> effort（可覆盖）
 THINKING_T0_EFFORT=minimal
@@ -258,16 +365,25 @@ THINKING_T2_EFFORT=medium
 THINKING_T3_EFFORT=high
 
 # 每个 tier 声明自己的能力；不写 = 不支持思维控制（不下发任何参数）
+# 连续区间用 MIN/MAX；非连续能力用 EFFORTS 白名单
+C0_REASONING_MODES=auto,enabled,disabled
+C0_REASONING_EFFORTS=low,medium,xhigh
+C0_REASONING_DEFAULT_MODE=auto
+
 C1_REASONING_MODES=auto,enabled,disabled
-C1_REASONING_EFFORT_MIN=low
-C1_REASONING_EFFORT_MAX=high
+C1_REASONING_EFFORT_MIN=minimal
+C1_REASONING_EFFORT_MAX=max
 C1_REASONING_DEFAULT_MODE=auto
 
-# 关不掉思考的模型（如 deepseek-flash）：不要写 disabled
-C3_REASONING_MODES=auto,enabled
-C3_REASONING_EFFORT_MIN=low
+C2_REASONING_MODES=auto,enabled,disabled
+C2_REASONING_EFFORT_MIN=minimal
+C2_REASONING_EFFORT_MAX=max
+C2_REASONING_DEFAULT_MODE=auto
+
+C3_REASONING_MODES=auto,enabled,disabled
+C3_REASONING_EFFORT_MIN=minimal
 C3_REASONING_EFFORT_MAX=max
-C3_REASONING_BUDGET_RATIO=0.5
+C3_REASONING_DEFAULT_MODE=auto
 ```
 
 ### 规则
@@ -275,9 +391,9 @@ C3_REASONING_BUDGET_RATIO=0.5
 | 项 | 行为 |
 |---|---|
 | 模型未声明 `REASONING_MODES` | 整段思维参数剥离，不下发 |
-| agent 显式传了 `reasoning_effort` / `thinking` | 优先采用（`PRIORITY=agent`），再按该模型区间 clamp |
-| agent 未传 | 用分类器的 T0–T3 映射成 effort |
-| effort 超出模型区间 | 自动 clamp 到边界，`_router.reasoning.clamped=true` |
+| `PRIORITY=router` | 始终用分类器的 T0–T3 映射 effort，忽略 agent 自带的思考参数 |
+| `PRIORITY=agent` | 优先采用 agent 显式传入的 `reasoning_effort` / `thinking`，再按模型能力 clamp |
+| effort 超出模型区间或白名单 | clamp 到最近支持值（同距离取较低档），`_router.reasoning.clamped=true` |
 | 请求 `disabled` 但模型关不掉 | 不传任何为空值，`dropped_reason=disabled_not_allowed` |
 | 降级到另一个模型 | 用新模型的能力重算，不复用上一个模型的字段 |
 
@@ -285,7 +401,7 @@ C3_REASONING_BUDGET_RATIO=0.5
 
 | 本项目的 effort | OpenAI Chat | OpenAI Responses | Anthropic |
 |---|---|---|---|
-| `low`/`medium`/`high` | `reasoning_effort` | `reasoning.effort` | `output_config.effort` |
+| `minimal`/`low`/`medium`/`high`/`xhigh`/`max` | `reasoning_effort` | `reasoning.effort` | `output_config.effort` |
 | `mode: enabled` | — | `reasoning.type=single` | `thinking.type=enabled` |
 | `mode: disabled` | `reasoning_effort=none` | `reasoning.type=disabled` | `thinking.type=disabled` |
 | `mode: auto` | — | 模型自决 | `thinking.type=adaptive` |
@@ -342,25 +458,25 @@ BACKEND_FORMAT=openai_chat
 # c0: 支持图片
 C0_MODEL=Qwen3.8-27B
 C0_SUPPORTS_IMAGE=1
-C0_SUPPORTS_VIDEO=1
+C0_SUPPORTS_VIDEO=0
 
-# c2: 纯文本，不支持图片（图片请求会排除它）
-C2_MODEL=glm-5.3-flash
-C2_SUPPORTS_IMAGE=0
-C2_SUPPORTS_VIDEO=0
+# c2: 支持图片和视频
+C2_MODEL=GLM-5.3-Flash
+C2_SUPPORTS_IMAGE=1
+C2_SUPPORTS_VIDEO=1
 
 # c3: 支持图片
-C3_PROVIDER=deepseek
-C3_MODEL=deepseek-flash
+C3_PROVIDER=starfire
+C3_MODEL=DeepSeek-V4.1-Flash
 C3_SUPPORTS_IMAGE=1
-C3_SUPPORTS_VIDEO=1
+C3_SUPPORTS_VIDEO=0
 ```
 
 ### 路由逻辑
 
 ```text
 请求包含图片/视频
-  → 筛选 SUPPORTS_IMAGE=1 的档位（如 c0/c1/c3）
+  → 筛选 SUPPORTS_IMAGE=1 的档位（当前 c0-c3）
   → 用 V4 ML 分类器跑提示词文本
   → R0→c0, R1→c1, R2/R3→c3（只在多模态档位内）
 纯文本请求
@@ -372,7 +488,7 @@ C3_SUPPORTS_VIDEO=1
 | 图片请求提示词 | 路由 tier | 模型 |
 |---------------|----------|------|
 | "这是什么"（简单） | c0 | Qwen3.8-27B |
-| "分析架构+部署代码"（复杂） | c3 | deepseek-flash |
+| "分析架构+部署代码"（复杂） | c3 | DeepSeek-V4.1-Flash |
 
 ### 响应标注
 
@@ -393,7 +509,7 @@ C3_SUPPORTS_VIDEO=1
 | 请求类型 | 分类结果 | 路由到的模型 | 置信度 |
 |---------|---------|------------|--------|
 | "你好，介绍自己" | R0 | Qwen3.8-27B | 0.94 |
-| "分析并发问题，设计架构" | R3 | deepseek-flash | 0.95 |
+| "分析并发问题，设计架构" | R3 | DeepSeek-V4.1-Flash | 0.95 |
 
 ## 响应格式
 
