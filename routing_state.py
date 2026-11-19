@@ -191,6 +191,7 @@ class RouteCall:
     reasoning_tokens: int
     latency_s: float
     cost_units: int
+    usage_source: str
 
 
 @dataclass(frozen=True)
@@ -478,7 +479,8 @@ class RoutingStateStore:
                     output_tokens INTEGER NOT NULL,
                     reasoning_tokens INTEGER NOT NULL,
                     latency_s REAL NOT NULL,
-                    cost_units INTEGER NOT NULL
+                    cost_units INTEGER NOT NULL,
+                    usage_source TEXT NOT NULL DEFAULT 'provider'
                 )
                 """
             )
@@ -491,6 +493,10 @@ class RoutingStateStore:
             if "task_class" not in columns:
                 connection.execute(
                     "ALTER TABLE routing_calls ADD COLUMN task_class TEXT NOT NULL DEFAULT 'unknown'"
+                )
+            if "usage_source" not in columns:
+                connection.execute(
+                    "ALTER TABLE routing_calls ADD COLUMN usage_source TEXT NOT NULL DEFAULT 'provider'"
                 )
             connection.execute(
                 """
@@ -758,6 +764,7 @@ class RoutingStateStore:
         reasoning_tokens: int,
         latency_s: float,
         cost_units: int,
+        usage_source: str = "provider",
     ) -> int:
         timestamp = time.time()
         with closing(self._connect()) as connection, connection:
@@ -766,8 +773,8 @@ class RoutingStateStore:
                 INSERT INTO routing_calls (
                     session_id, task_id, timestamp, intent, tier, route_class,
                     model, provider, task_class, input_tokens, cached_tokens, output_tokens,
-                    reasoning_tokens, latency_s, cost_units
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    reasoning_tokens, latency_s, cost_units, usage_source
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -785,6 +792,7 @@ class RoutingStateStore:
                     reasoning_tokens,
                     latency_s,
                     cost_units,
+                    usage_source,
                 ),
             )
         return int(cursor.lastrowid)

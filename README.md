@@ -188,6 +188,9 @@ ROUTER_RATE_LIMIT_COOLDOWN_SECONDS=15
 ```
 
 usage 账本同时记录成功调用和失败尝试：HTTP 状态、错误类型、尝试延迟和冷却时间。
+如果后端或 SSE 没有返回 `usage`，Router 会根据请求和实际输出内容做保守估算，
+并在 `usage_source` 中标记 `estimated`（部分来自供应商、部分估算则为 `mixed`）。
+`/admin/routing-usage` 的 `estimated_usage_calls` 会汇总这类调用。
 
 应用日志、uvicorn 错误日志和 access log 使用 `RotatingFileHandler`：
 
@@ -342,24 +345,33 @@ BACKEND_API_KEY=your-key
 
 # 每个 tier：只填模型 + 能力标志
 C0_MODEL=Qwen3.8-27B
+C0_CONTEXT_LENGTH=131072
 C0_SUPPORTS_IMAGE=1
 C0_SUPPORTS_VIDEO=0
 
 C1_PROVIDER=starfire
 C1_MODEL=Qwen3.5-397B-A17B
+C1_CONTEXT_LENGTH=262144
 C1_SUPPORTS_IMAGE=1
 C1_SUPPORTS_VIDEO=0
 
 C2_PROVIDER=tianhe
 C2_MODEL=GLM-5.3-Flash
+C2_CONTEXT_LENGTH=131072
 C2_SUPPORTS_IMAGE=1
 C2_SUPPORTS_VIDEO=1
 
 C3_PROVIDER=starfire
 C3_MODEL=DeepSeek-V4.1-Flash
+C3_CONTEXT_LENGTH=262144
 C3_SUPPORTS_IMAGE=1
 C3_SUPPORTS_VIDEO=0
 ```
+
+`C<N>_CONTEXT_LENGTH` 是可选的静态能力声明。设置后，估算输入超过该值的档位不会
+进入新任务候选或 fallback 链路；不设置表示上限未知，Router 不会自行限制请求大小。
+图片/视频的 base64 原始字节不会直接计入上下文估算，每个媒体片段默认按
+`ROUTER_MEDIA_TOKEN_ESTIMATE=1024` tokens 估算，可按实际供应商规则调整。
 
 ### 配置多个 Provider（无需改代码）
 
@@ -477,17 +489,14 @@ C3_REASONING_DEFAULT_MODE=auto
 当请求包含图片或视频时，Router 会**先按配置筛选支持图片/视频的档位**，
 再按文本 tier 方式（V4 ML 分类提示词）在可用档位内路由。
 
-支持 OpenAI `image_url` 和 Anthropic `image`/`video` 格式。
+支持 OpenAI `image_url`、Responses `input_image` 和 Anthropic `image` 格式；
+视频按同一消息结构中的 `video` / `video_url` / `input_video` 识别。
 
 ### 配置
 
 每个档位在 `.env` 里用 `SUPPORTS_IMAGE` / `SUPPORTS_VIDEO` 标注多模态能力：
 
 ```text
-VISION_MODEL=GLM-5.3-Flash
-VISION_API_KEY=sk-your-key
-VISION_BASE_URL=https://chat.tianhe-tech.com/v1
-
 BACKEND_BASE_URL=https://your-openai-compatible-maas/v1
 BACKEND_API_KEY=your-key
 BACKEND_FORMAT=openai_chat
@@ -513,9 +522,13 @@ C3_SUPPORTS_VIDEO=0
 
 ```text
 请求包含图片/视频
-  → 筛选 SUPPORTS_IMAGE=1 的档位（当前 c0-c3）
+  → 有图片：只保留 SUPPORTS_IMAGE=1
+  → 有视频：只保留 SUPPORTS_VIDEO=1
+  → 图片和视频同时存在：两个能力都必须为 1
+  → 再排除已知 CONTEXT_LENGTH 小于输入估算的档位
   → 用 V4 ML 分类器跑提示词文本
   → R0→c0, R1→c1, R2/R3→c3（只在多模态档位内）
+  → 没有任何可用档位：503 NO_CAPABLE_BACKEND
 纯文本请求
   → 正常走 R0-R3 → c0-c3 全档位
 ```

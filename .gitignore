@@ -30,3 +30,4 @@ benchmarks/opencode_*_task/
 .tmp_pytest/
 pytest-cache-files-*/
 tests/.state-*.db
+tests/.matrix-*.db

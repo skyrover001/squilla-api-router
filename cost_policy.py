@@ -20,6 +20,15 @@ DEFAULT_OUTPUT_TOKENS = {
     "c2": 1000.0,
     "c3": 800.0,
 }
+_MEDIA_PART_TYPES = {
+    "image",
+    "image_url",
+    "input_image",
+    "video",
+    "video_url",
+    "input_video",
+    "document",
+}
 
 
 @dataclass(frozen=True)
@@ -46,6 +55,46 @@ def estimate_input_tokens(body: Mapping[str, Any]) -> int:
     # Mixed Chinese/code prompts average fewer than four chars per token. Use a
     # denser estimate to avoid understating input cost.
     return max(1, (chars + 2) // 3)
+
+
+def estimate_capability_input_tokens(
+    body: Mapping[str, Any],
+    *,
+    media_tokens: int = 1024,
+) -> int:
+    """Estimate context usage while omitting embedded media byte payloads."""
+    media_count = 0
+
+    def sanitize(value: Any) -> Any:
+        nonlocal media_count
+        if isinstance(value, dict):
+            if value.get("type") in _MEDIA_PART_TYPES and any(
+                key in value
+                for key in (
+                    "image_url",
+                    "video_url",
+                    "source",
+                    "data",
+                    "file_id",
+                )
+            ):
+                media_count += 1
+                return {"type": value.get("type"), "media": "[omitted]"}
+            return {key: sanitize(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [sanitize(item) for item in value]
+        return value
+
+    material = {
+        "messages": sanitize(body.get("messages")),
+        "input": sanitize(body.get("input")),
+        "system": sanitize(body.get("system")),
+        "tools": sanitize(body.get("tools") or body.get("tool")),
+    }
+    chars = len(
+        json.dumps(material, ensure_ascii=False, separators=(",", ":"), default=str)
+    )
+    return max(1, (chars + 2) // 3) + media_count * max(0, media_tokens)
 
 
 def classify_task(body: Mapping[str, Any]) -> str:

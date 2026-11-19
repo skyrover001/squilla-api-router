@@ -234,12 +234,14 @@ def test_usage_ledger_roundtrip() -> None:
             reasoning_tokens=10,
             latency_s=1.25,
             cost_units=1000,
+            usage_source="estimated",
         )
         calls = store.list_calls("session-1")
         assert call_id == calls[0].call_id
         assert calls[0].cached_tokens == 80
         assert calls[0].output_tokens == 40
         assert calls[0].cost_units == 1000
+        assert calls[0].usage_source == "estimated"
         assert calls[0].task_class == "code"
         assert store.task_tier_profiles("code")["c2"][2] == 1
     finally:

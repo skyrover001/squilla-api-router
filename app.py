@@ -55,6 +55,7 @@ from squilla_api_router.backend_health import CircuitBreaker
 from squilla_api_router.cost_policy import (
     choose_tier as choose_cost_aware_tier,
     classify_task,
+    estimate_capability_input_tokens,
     estimate_input_tokens,
     large_context_floor_tier as policy_large_context_floor_tier,
 )
@@ -62,6 +63,10 @@ from squilla_api_router.quality_signals import (
     StreamToolCallTracker,
     response_quality_failure,
     response_tool_signature,
+)
+from squilla_api_router.usage_estimation import (
+    StreamOutputTokenEstimator,
+    estimate_response_output_tokens,
 )
 
 from squilla_api_router.final_policy import apply_final_policy
@@ -513,11 +518,19 @@ def _discover_tiers() -> dict[str, dict]:
     for n in sorted(indices):
         tier = f"c{n}"
         prefix = f"C{n}"
+        context_raw = os.environ.get(f"{prefix}_CONTEXT_LENGTH", "").strip()
+        try:
+            context_length = int(context_raw) if context_raw else None
+        except ValueError:
+            context_length = None
+        if context_length is not None and context_length <= 0:
+            context_length = None
         tiers[tier] = {
             "provider": os.environ.get(f"{prefix}_PROVIDER", "tianhe").lower(),
             "model": os.environ.get(f"{prefix}_MODEL", ""),
             "supports_image": os.environ.get(f"{prefix}_SUPPORTS_IMAGE", "0") == "1",
             "supports_video": os.environ.get(f"{prefix}_SUPPORTS_VIDEO", "0") == "1",
+            "context_length": context_length,
             "reasoning": _parse_reasoning_capability(prefix),
         }
     return tiers
@@ -1007,9 +1020,58 @@ def _detect_video_content(messages: list[dict[str, Any]]) -> bool:
     return False
 
 
-def _vision_valid_tiers() -> list[str]:
-    """Return tiers whose model supports image (and video if requested)."""
-    return [name for name, cfg in TIERS.items() if cfg.get("supports_image")]
+def _tier_configured(tier: str) -> bool:
+    cfg = TIERS.get(tier) or {}
+    provider = PROVIDERS.get(str(cfg.get("provider") or "")) or {}
+    return bool(cfg.get("model") and provider.get("base_url"))
+
+
+def _matching_tiers(
+    body: dict[str, Any],
+    *,
+    require_image: bool = False,
+    require_video: bool = False,
+    enforce_context: bool = True,
+) -> list[str]:
+    """Return configured tiers compatible with the request's declared needs.
+
+    A missing context length means "unknown" and does not restrict the tier.
+    This keeps local/proxy backends usable without inventing a hard limit.
+    """
+    input_tokens = estimate_capability_input_tokens(
+        body,
+        media_tokens=int(os.environ.get("ROUTER_MEDIA_TOKEN_ESTIMATE", "1024")),
+    )
+    matches: list[str] = []
+    for tier in sorted(TIERS, key=lambda item: int(item[1:])):
+        cfg = TIERS.get(tier) or {}
+        if not _tier_configured(tier):
+            continue
+        if require_image and not cfg.get("supports_image"):
+            continue
+        if require_video and not cfg.get("supports_video"):
+            continue
+        context_length = cfg.get("context_length")
+        if (
+            enforce_context
+            and isinstance(context_length, int)
+            and input_tokens > context_length
+        ):
+            continue
+        matches.append(tier)
+    return matches
+
+
+def _vision_valid_tiers(
+    *,
+    required_video: bool = False,
+    body: dict[str, Any] | None = None,
+) -> list[str]:
+    return _matching_tiers(
+        body or {},
+        require_image=True,
+        require_video=required_video,
+    )
 
 
 def _is_failure(result: dict, status: int, outbound_format: str = "openai_chat") -> bool:
@@ -1333,10 +1395,15 @@ async def _call_backend(
                     saw_done = False
                     stream_usage: dict[str, Any] = {}
                     tool_tracker = StreamToolCallTracker()
+                    output_estimator = StreamOutputTokenEstimator()
+                    sse_buffer = ""
 
                     def absorb_usage(chunk: bytes) -> None:
-                        text = chunk.decode("utf-8", errors="replace")
-                        for frame in text.split("\n"):
+                        nonlocal sse_buffer
+                        text = sse_buffer + chunk.decode("utf-8", errors="replace")
+                        frames = text.split("\n")
+                        sse_buffer = frames.pop()
+                        for frame in frames:
                             if not frame.startswith("data: "):
                                 continue
                             raw = frame[6:].strip()
@@ -1347,6 +1414,7 @@ async def _call_backend(
                             except Exception:
                                 continue
                             tool_tracker.feed(event)
+                            output_estimator.feed(event)
                             found = _usage_from_event(event)
                             if found:
                                 stream_usage.clear()
@@ -1368,6 +1436,7 @@ async def _call_backend(
                             absorb_usage(out_chunk)
                             await queue.put(("chunk", out_chunk))
 
+                    absorb_usage(b"\n")
                     if not saw_done:
                         await queue.put(("chunk", b"data: [DONE]\n\n"))
                     logger.info(
@@ -1390,6 +1459,8 @@ async def _call_backend(
                                     "model": cand_backend["model"],
                                     "provider": cand_backend.get("provider", ""),
                                     "usage": stream_usage,
+                                    "request_body": body,
+                                    "estimated_output_tokens": output_estimator.tokens,
                                     "latency_s": time.monotonic() - request_started,
                                 }
                             )
@@ -1815,6 +1886,11 @@ async def _call_backend(
                                 "model": cand_backend["model"],
                                 "provider": cand_backend.get("provider", ""),
                                 "usage": result.get("usage") or {},
+                                "request_body": body,
+                                "estimated_output_tokens": estimate_response_output_tokens(
+                                    result,
+                                    outbound_fmt,
+                                ),
                                 "latency_s": time.monotonic() - request_started,
                             }
                         )
@@ -1866,7 +1942,9 @@ def _fallback_chain(
     route_class: str,
     route_info: dict,
     vision: bool = False,
+    video: bool = False,
     minimum_tier: str | None = None,
+    valid_tiers: list[str] | None = None,
 ) -> list[tuple[dict, str]]:
     """Build failover chain: selected tier first, then remaining tiers by
     canonical order (c0..c3). For vision, only include vision-capable tiers.
@@ -1879,9 +1957,13 @@ def _fallback_chain(
     # candidate; otherwise c0 is attempted twice (once as R0, once as c0).
     current = ROUTE_CLASS_TO_TIER.get(route_class, route_class)
     # Get raw route class (R0..R3) to determine order for text vs vision remap
-    tiers_in_order = sorted(TIERS.keys(), key=lambda t: int(t[1:]))
-    if vision:
-        tiers_in_order = _vision_valid_tiers()
+    tiers_in_order = (
+        list(valid_tiers)
+        if valid_tiers is not None
+        else sorted(TIERS.keys(), key=lambda t: int(t[1:]))
+    )
+    if vision and valid_tiers is None:
+        tiers_in_order = _vision_valid_tiers(required_video=video)
     # remove current, build chain
     rest = [
         t
@@ -1893,10 +1975,11 @@ def _fallback_chain(
         )
     ]
     chain = []
-    try:
-        chain.append((_get_backend(current), current))
-    except Exception:
-        pass
+    if current in tiers_in_order:
+        try:
+            chain.append((_get_backend(current), current))
+        except Exception:
+            pass
     for t in rest:
         try:
             chain.append((_get_backend(t), t))
@@ -2270,10 +2353,13 @@ def _upgrade_session_tier(tier: str, steps: int = 1) -> str:
     return ordered[min(ordered.index(tier) + steps, len(ordered) - 1)]
 
 
-def _large_context_floor_tier(tokens: int) -> str | None:
+def _large_context_floor_tier(
+    tokens: int,
+    available_tiers: list[str] | None = None,
+) -> str | None:
     return policy_large_context_floor_tier(
         tokens,
-        available_tiers=tuple(TIERS),
+        available_tiers=tuple(available_tiers or TIERS),
         r2_tokens=int(os.environ.get("ROUTER_LARGE_CONTEXT_R2_TOKENS", "25000")),
         r3_tokens=int(os.environ.get("ROUTER_LARGE_CONTEXT_R3_TOKENS", "80000")),
     )
@@ -2370,7 +2456,10 @@ def _prepare_session_route(
     minimum_tier = None
     if decision.intent == "continue" and reusable and previous is not None:
         route_info = _route_info_from_state(previous)
-        floor_tier = _large_context_floor_tier(full_context_tokens)
+        floor_tier = _large_context_floor_tier(
+            full_context_tokens,
+            valid_tiers,
+        )
         if floor_tier and int(floor_tier[1:]) > int(previous.tier[1:]):
             route_info["route_class"] = _route_class_for_tier(floor_tier)
             route_info["large_context_floor"] = {
@@ -2415,7 +2504,8 @@ def _prepare_session_route(
         route_info["route_class"], route_info["route_class"]
     )
     floor_tier = _large_context_floor_tier(
-        int(route_info.get("material_tokens") or 0)
+        int(route_info.get("material_tokens") or 0),
+        valid_tiers,
     )
     if (
         floor_tier
@@ -2471,6 +2561,21 @@ def _prepare_session_route(
         route_info["cost_aware_selected"] = cost_tier != selected_tier
         route_info["route_class"] = _route_class_for_tier(cost_tier)
         selected_tier = cost_tier
+    if valid_tiers is not None and selected_tier not in valid_tiers:
+        ordered_valid = sorted(valid_tiers, key=lambda item: int(item[1:]))
+        eligible = [
+            tier
+            for tier in ordered_valid
+            if int(tier[1:]) >= int(selected_tier[1:])
+        ]
+        capability_tier = eligible[0] if eligible else ordered_valid[-1]
+        route_info["capability_remap"] = {
+            "from_tier": selected_tier,
+            "to_tier": capability_tier,
+            "reason": "request_capability_or_context",
+        }
+        route_info["route_class"] = _route_class_for_tier(capability_tier)
+        selected_tier = capability_tier
     route_info["cost_policy"] = (
         "cost_aware" if cost_aware_enabled else "classifier"
     )
@@ -2627,6 +2732,8 @@ def _record_usage(
     model: str,
     provider: str,
     usage: dict[str, Any] | None,
+    request_body: dict[str, Any] | None = None,
+    estimated_output_tokens: int = 0,
     latency_s: float,
 ) -> None:
     store = _routing_state_store()
@@ -2635,6 +2742,24 @@ def _record_usage(
     input_tokens, cached_tokens, output_tokens, reasoning_tokens = _usage_values(
         usage
     )
+    provider_input = input_tokens > 0
+    provider_output = output_tokens > 0
+    if not provider_input:
+        input_tokens = estimate_input_tokens(request_body or {})
+    if not provider_output:
+        output_tokens = max(0, int(estimated_output_tokens))
+    if provider_input and provider_output:
+        usage_source = "provider"
+    elif provider_input or provider_output:
+        usage_source = "mixed"
+    else:
+        usage_source = "estimated"
+    effective_usage = {
+        "prompt_tokens": input_tokens,
+        "completion_tokens": output_tokens,
+        "prompt_tokens_details": {"cached_tokens": cached_tokens},
+        "completion_tokens_details": {"reasoning_tokens": reasoning_tokens},
+    }
     try:
         store.record_call(
             session_id=plan.identity.session_id,
@@ -2650,7 +2775,8 @@ def _record_usage(
             output_tokens=output_tokens,
             reasoning_tokens=reasoning_tokens,
             latency_s=latency_s,
-            cost_units=_cost_units(usage, tier),
+            cost_units=_cost_units(effective_usage, tier),
+            usage_source=usage_source,
         )
     except Exception as exc:
         logger.warning("failed to persist usage ledger: %s", exc)
@@ -2667,6 +2793,14 @@ def _usage_callback_for(plan: SessionRoutePlan) -> Callable[[dict[str, Any]], No
             model=str(payload.get("model") or ""),
             provider=str(payload.get("provider") or ""),
             usage=payload.get("usage") if isinstance(payload.get("usage"), dict) else {},
+            request_body=(
+                payload.get("request_body")
+                if isinstance(payload.get("request_body"), dict)
+                else None
+            ),
+            estimated_output_tokens=int(
+                payload.get("estimated_output_tokens") or 0
+            ),
             latency_s=float(payload.get("latency_s") or 0),
         )
 
@@ -2770,15 +2904,26 @@ async def chat_completions(
     messages = body.get("messages", [])
     tools = body.get("tools", None)
     user_text = _extract_user_text(messages)
-    is_vision = _detect_image_content(messages) or _detect_video_content(messages)
+    has_image = _detect_image_content(messages)
     has_video = _detect_video_content(messages)
+    is_vision = has_image or has_video
+    valid_tiers = _matching_tiers(
+        body,
+        require_image=has_image,
+        require_video=has_video,
+    )
+    if not valid_tiers:
+        return JSONResponse(
+            content={
+                "error": {
+                    "message": "no configured backend satisfies request capabilities",
+                    "code": "NO_CAPABLE_BACKEND",
+                }
+            },
+            status_code=503,
+        )
 
     if is_vision:
-        valid_tiers = _vision_valid_tiers()
-        if not valid_tiers:
-            backend = {"model": VISION_MODEL, "api_key": VISION_API_KEY, "base_url": VISION_BASE_URL}
-            body["model"] = VISION_MODEL
-            return await _call_backend(body, backend, "vision", inbound_fmt="openai_chat", vision=True, video=has_video)
         plan = _prepare_session_route(
             request, body, messages, tools, valid_tiers=valid_tiers
         )
@@ -2787,7 +2932,12 @@ async def chat_completions(
         backend = _get_backend(route_class)
         body["model"] = backend["model"]
         chain = _fallback_chain(
-            route_class, route_info, vision=True, minimum_tier=plan.minimum_tier
+            route_class,
+            route_info,
+            vision=True,
+            video=has_video,
+            minimum_tier=plan.minimum_tier,
+            valid_tiers=valid_tiers,
         )
         result = await _call_backend(
             body,
@@ -2808,12 +2958,23 @@ async def chat_completions(
         _attach_session_headers(result, plan)
         return result
 
-    plan = _prepare_session_route(request, body, messages, tools)
+    plan = _prepare_session_route(
+        request,
+        body,
+        messages,
+        tools,
+        valid_tiers=valid_tiers,
+    )
     route_info = plan.route_info
     route_class = route_info["route_class"]
     backend = _get_backend(route_class)
     body["model"] = backend["model"]
-    chain = _fallback_chain(route_class, route_info, minimum_tier=plan.minimum_tier)
+    chain = _fallback_chain(
+        route_class,
+        route_info,
+        minimum_tier=plan.minimum_tier,
+        valid_tiers=valid_tiers,
+    )
     resp = await _call_backend(
         body, backend, route_class, inbound_fmt="openai_chat",
         thinking_mode=route_info.get("thinking_mode"),
@@ -2876,6 +3037,7 @@ async def responses_endpoint(
 
     # Detect image in Responses format
     is_vision = False
+    has_image = False
     has_video = False
     if isinstance(inp, list):
         for item in inp:
@@ -2885,18 +3047,34 @@ async def responses_endpoint(
                     for p in c:
                         if isinstance(p, dict) and p.get("type") in ("input_image", "image_url", "image", "input_video", "video", "video_url"):
                             is_vision = True
+                            if p.get("type") in (
+                                "input_image",
+                                "image_url",
+                                "image",
+                            ):
+                                has_image = True
                             if p.get("type") in ("input_video", "video", "video_url"):
                                 has_video = True
     # For classification, feed a pseudo message so V4 classifier sees the user text
     msgs_for_classify = [{"role": "user", "content": user_text}] if user_text else []
     tools = body.get("tools", None) or body.get("tool", None)
+    valid_tiers = _matching_tiers(
+        body,
+        require_image=has_image,
+        require_video=has_video,
+    )
+    if not valid_tiers:
+        return JSONResponse(
+            content={
+                "error": {
+                    "message": "no configured backend satisfies request capabilities",
+                    "code": "NO_CAPABLE_BACKEND",
+                }
+            },
+            status_code=503,
+        )
 
     if is_vision:
-        valid_tiers = _vision_valid_tiers()
-        if not valid_tiers:
-            backend = {"model": VISION_MODEL, "api_key": VISION_API_KEY, "base_url": VISION_BASE_URL}
-            body["model"] = VISION_MODEL
-            return await _call_backend(body, backend, "vision", inbound_fmt="openai_responses", vision=True, video=has_video)
         plan = _prepare_session_route(
             request, body, msgs_for_classify, tools, valid_tiers=valid_tiers
         )
@@ -2905,7 +3083,12 @@ async def responses_endpoint(
         backend = _get_backend(route_class)
         body["model"] = backend["model"]
         chain = _fallback_chain(
-            route_class, route_info, vision=True, minimum_tier=plan.minimum_tier
+            route_class,
+            route_info,
+            vision=True,
+            video=has_video,
+            minimum_tier=plan.minimum_tier,
+            valid_tiers=valid_tiers,
         )
         result = await _call_backend(
             body,
@@ -2926,12 +3109,23 @@ async def responses_endpoint(
         _attach_session_headers(result, plan)
         return result
 
-    plan = _prepare_session_route(request, body, msgs_for_classify, tools)
+    plan = _prepare_session_route(
+        request,
+        body,
+        msgs_for_classify,
+        tools,
+        valid_tiers=valid_tiers,
+    )
     route_info = plan.route_info
     route_class = route_info["route_class"]
     backend = _get_backend(route_class)
     body["model"] = backend["model"]
-    chain = _fallback_chain(route_class, route_info, minimum_tier=plan.minimum_tier)
+    chain = _fallback_chain(
+        route_class,
+        route_info,
+        minimum_tier=plan.minimum_tier,
+        valid_tiers=valid_tiers,
+    )
     result = await _call_backend(
         body, backend, route_class, inbound_fmt="openai_responses",
         thinking_mode=route_info.get("thinking_mode"),
@@ -2957,15 +3151,26 @@ async def anthropic_messages(
     messages = body.get("messages", [])
     tools = body.get("tools", None)
     user_text = _extract_user_text(messages)
-    is_vision = _detect_image_content(messages) or _detect_video_content(messages)
+    has_image = _detect_image_content(messages)
     has_video = _detect_video_content(messages)
+    is_vision = has_image or has_video
+    valid_tiers = _matching_tiers(
+        body,
+        require_image=has_image,
+        require_video=has_video,
+    )
+    if not valid_tiers:
+        return JSONResponse(
+            content={
+                "error": {
+                    "message": "no configured backend satisfies request capabilities",
+                    "code": "NO_CAPABLE_BACKEND",
+                }
+            },
+            status_code=503,
+        )
 
     if is_vision:
-        valid_tiers = _vision_valid_tiers()
-        if not valid_tiers:
-            backend = {"model": VISION_MODEL, "api_key": VISION_API_KEY, "base_url": VISION_BASE_URL}
-            body["model"] = VISION_MODEL
-            return await _call_backend(body, backend, "vision", inbound_fmt="anthropic", vision=True, video=has_video)
         plan = _prepare_session_route(
             request, body, messages, tools, valid_tiers=valid_tiers
         )
@@ -2974,7 +3179,12 @@ async def anthropic_messages(
         backend = _get_backend(route_class)
         body["model"] = backend["model"]
         chain = _fallback_chain(
-            route_class, route_info, vision=True, minimum_tier=plan.minimum_tier
+            route_class,
+            route_info,
+            vision=True,
+            video=has_video,
+            minimum_tier=plan.minimum_tier,
+            valid_tiers=valid_tiers,
         )
         result = await _call_backend(
             body, backend, route_class, inbound_fmt="anthropic", vision=True,
@@ -2990,12 +3200,23 @@ async def anthropic_messages(
         _attach_session_headers(result, plan)
         return result
 
-    plan = _prepare_session_route(request, body, messages, tools)
+    plan = _prepare_session_route(
+        request,
+        body,
+        messages,
+        tools,
+        valid_tiers=valid_tiers,
+    )
     route_info = plan.route_info
     route_class = route_info["route_class"]
     backend = _get_backend(route_class)
     body["model"] = backend["model"]
-    chain = _fallback_chain(route_class, route_info, minimum_tier=plan.minimum_tier)
+    chain = _fallback_chain(
+        route_class,
+        route_info,
+        minimum_tier=plan.minimum_tier,
+        valid_tiers=valid_tiers,
+    )
     result = await _call_backend(
         body, backend, route_class, inbound_fmt="anthropic",
         thinking_mode=route_info.get("thinking_mode"),
@@ -3049,7 +3270,9 @@ async def reload_config_endpoint(
 
                 "supports_image": c.get("supports_image", False),
 
-                "supports_video": c.get("supports_video", False)}
+                "supports_video": c.get("supports_video", False),
+
+                "context_length": c.get("context_length")}
 
             for t, c in TIERS.items()
 
@@ -3135,6 +3358,12 @@ async def routing_usage_endpoint(
         "reasoning_tokens": sum(call.reasoning_tokens for call in calls),
         "latency_s": round(sum(call.latency_s for call in calls), 6),
         "cost_units": sum(call.cost_units for call in calls),
+        "estimated_usage_calls": sum(
+            1 for call in calls if call.usage_source != "provider"
+        ),
+        "mixed_usage_calls": sum(
+            1 for call in calls if call.usage_source == "mixed"
+        ),
         "attempts": len(attempts),
         "failed_attempts": sum(1 for attempt in attempts if not attempt.success),
         "cooldown_seconds": round(
@@ -3166,6 +3395,7 @@ async def router_status():
             "base_url": provider.get("base_url", ""),
             "supports_image": cfg.get("supports_image", False),
             "supports_video": cfg.get("supports_video", False),
+            "context_length": cfg.get("context_length"),
             "reasoning": cfg.get("reasoning"),
             "configured": bool(cfg.get("model") and provider.get("api_key")),
         }
