@@ -128,6 +128,9 @@ Harness 检测到输出校验失败、tool call 失败或无进展时，可通�
 ```env
 ROUTER_SESSION_STICKY=1
 ROUTER_TASK_CHANGE_SIMILARITY=0.15
+ROUTER_TASK_CHANGE_MODE=safe_hybrid
+ROUTER_TASK_CHANGE_HARD_THRESHOLD=0.45
+ROUTER_TASK_CHANGE_SOFT_THRESHOLD=0.20
 ```
 
 响应会返回 `X-Squilla-*` 路由状态头。查看状态：
@@ -135,6 +138,36 @@ ROUTER_TASK_CHANGE_SIMILARITY=0.15
 ```text
 GET /admin/routing-state?session_id=...
 ```
+
+### 安全任务变化判断（#5）
+
+`safe_hybrid` 用本地 BGE + 小型二分类模型处理规则无法确定的轮次。它不是
+“分类器永不犯错”的承诺，而是保证误判不会导致新任务继续锁在低能力模型：
+
+```text
+p(change) >= 0.45   -> 确认 Task Changed，创建新 task 并正常选模型
+0.20 <= p < 0.45    -> 保持 task_id，但 force reclassify 本轮强制重新选模型
+p(change) < 0.20    -> 认为是同一任务，允许 session sticky
+模型/文件不可用      -> 退回规则；模糊轮次强制重新分类
+```
+
+响应头：
+
+```text
+X-Squilla-Force-Reclassify: 0 | 1
+X-Squilla-Task-Boundary: <reason>
+X-Squilla-Task-Change-Probability: <0..1>
+```
+
+模型产物为 `model_bundle/task_change/v1.joblib`，旁边 `.sha256` 文件在加载前校验。
+重新训练：
+
+```powershell
+python train_task_change_model.py
+```
+
+当前独立 holdout 的硬切换误拆率为 3.16%，真正且未触发重新分类的漏判率为 0。
+`GET /router-status` 会显示模型是否成功加载及阈值。
 
 ### 成本感知路由（P1）
 

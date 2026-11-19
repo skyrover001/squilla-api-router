@@ -78,6 +78,13 @@ from squilla_api_router.routing_state import (
     decide_intent,
     resolve_request_identity,
 )
+from squilla_api_router.task_change_policy import (
+    DEFAULT_MODEL_PATH as TASK_CHANGE_MODEL_PATH,
+    TaskChangePolicy,
+    hard_rule_decision as task_change_hard_rule,
+    runtime_case as task_change_runtime_case,
+    safe_heuristic_decision,
+)
 
 
 
@@ -196,6 +203,19 @@ _THINKING_MODE_ORDER = {"T0": 0, "T1": 1, "T2": 2, "T3": 3}
 
 ROUTER_REASONING_ENABLED = os.environ.get("ROUTER_REASONING_ENABLED", "0") == "1"
 ROUTER_SESSION_STICKY = os.environ.get("ROUTER_SESSION_STICKY", "1") == "1"
+ROUTER_TASK_CHANGE_MODE = (
+    os.environ.get("ROUTER_TASK_CHANGE_MODE", "safe_hybrid").strip().lower()
+)
+ROUTER_TASK_CHANGE_MODEL = os.environ.get(
+    "ROUTER_TASK_CHANGE_MODEL",
+    str(TASK_CHANGE_MODEL_PATH),
+)
+ROUTER_TASK_CHANGE_HARD_THRESHOLD = float(
+    os.environ.get("ROUTER_TASK_CHANGE_HARD_THRESHOLD", "0.45")
+)
+ROUTER_TASK_CHANGE_SOFT_THRESHOLD = float(
+    os.environ.get("ROUTER_TASK_CHANGE_SOFT_THRESHOLD", "0.20")
+)
 ROUTER_TASK_CHANGE_SIMILARITY = float(
     os.environ.get("ROUTER_TASK_CHANGE_SIMILARITY", "0.15")
 )
@@ -214,6 +234,8 @@ ROUTER_RATE_LIMIT_COOLDOWN_SECONDS = float(
 )
 _ROUTING_STATE_STORE: RoutingStateStore | None = None
 _CIRCUIT_BREAKER: CircuitBreaker | None = None
+_TASK_CHANGE_POLICY: TaskChangePolicy | None = None
+_TASK_CHANGE_POLICY_ERROR = ""
 
 ROUTER_REASONING_PRIORITY = (
     os.environ.get("ROUTER_REASONING_PRIORITY", "agent").strip().lower() or "agent"
@@ -836,6 +858,10 @@ def _reload_config() -> bool:
     global BACKEND_STREAM_IDLE_TIMEOUT
     global ROUTER_REASONING_ENABLED, ROUTER_REASONING_PRIORITY
     global ROUTER_SESSION_STICKY, ROUTER_TASK_CHANGE_SIMILARITY
+    global ROUTER_TASK_CHANGE_MODE, ROUTER_TASK_CHANGE_MODEL
+    global ROUTER_TASK_CHANGE_HARD_THRESHOLD
+    global ROUTER_TASK_CHANGE_SOFT_THRESHOLD
+    global _TASK_CHANGE_POLICY, _TASK_CHANGE_POLICY_ERROR
     global ROUTER_COST_AWARE_ENABLED, ROUTER_MIN_PROFILE_OBSERVATIONS
     global VISION_MODEL, VISION_BASE_URL, VISION_API_KEY, _config_mtime
 
@@ -867,6 +893,21 @@ def _reload_config() -> bool:
     ROUTER_TASK_CHANGE_SIMILARITY = float(
         os.environ.get("ROUTER_TASK_CHANGE_SIMILARITY", "0.15")
     )
+    ROUTER_TASK_CHANGE_MODE = (
+        os.environ.get("ROUTER_TASK_CHANGE_MODE", "safe_hybrid").strip().lower()
+    )
+    ROUTER_TASK_CHANGE_MODEL = os.environ.get(
+        "ROUTER_TASK_CHANGE_MODEL",
+        str(TASK_CHANGE_MODEL_PATH),
+    )
+    ROUTER_TASK_CHANGE_HARD_THRESHOLD = float(
+        os.environ.get("ROUTER_TASK_CHANGE_HARD_THRESHOLD", "0.45")
+    )
+    ROUTER_TASK_CHANGE_SOFT_THRESHOLD = float(
+        os.environ.get("ROUTER_TASK_CHANGE_SOFT_THRESHOLD", "0.20")
+    )
+    _TASK_CHANGE_POLICY = None
+    _TASK_CHANGE_POLICY_ERROR = ""
     ROUTER_COST_AWARE_ENABLED = (
         os.environ.get("ROUTER_COST_AWARE_ENABLED", "1") == "1"
     )
@@ -2283,6 +2324,8 @@ class SessionRoutePlan:
     route_info: dict[str, Any]
     sticky: bool
     minimum_tier: str | None
+    force_reclassify: bool = False
+    task_goal: str = ""
 
 
 def _routing_state_store() -> RoutingStateStore | None:
@@ -2326,6 +2369,32 @@ def _circuit_breaker() -> CircuitBreaker:
             )
             _CIRCUIT_BREAKER = CircuitBreaker(**options)
     return _CIRCUIT_BREAKER
+
+
+def _task_change_policy() -> TaskChangePolicy | None:
+    global _TASK_CHANGE_POLICY, _TASK_CHANGE_POLICY_ERROR
+    if ROUTER_TASK_CHANGE_MODE != "safe_hybrid":
+        return None
+    if _TASK_CHANGE_POLICY is not None:
+        return _TASK_CHANGE_POLICY
+    model_path = Path(ROUTER_TASK_CHANGE_MODEL)
+    if not model_path.is_absolute():
+        model_path = Path(__file__).resolve().parent / model_path
+    try:
+        _TASK_CHANGE_POLICY = TaskChangePolicy(
+            model_path,
+            hard_threshold=ROUTER_TASK_CHANGE_HARD_THRESHOLD,
+            soft_threshold=ROUTER_TASK_CHANGE_SOFT_THRESHOLD,
+        )
+        _TASK_CHANGE_POLICY_ERROR = ""
+    except Exception as exc:
+        _TASK_CHANGE_POLICY = None
+        _TASK_CHANGE_POLICY_ERROR = f"{type(exc).__name__}: {exc}"
+        logger.warning(
+            "task-change safe model unavailable; using fail-safe heuristic: %s",
+            exc,
+        )
+    return _TASK_CHANGE_POLICY
 
 
 def _backend_key(backend: dict[str, Any]) -> str:
@@ -2407,6 +2476,29 @@ def _headers_with_authenticated_tenant(request: Request) -> dict[str, str]:
     return headers
 
 
+def _recent_user_texts(messages: list[dict[str, Any]]) -> list[str]:
+    texts: list[str] = []
+    for message in messages:
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            texts.append(content.strip())
+            continue
+        if not isinstance(content, list):
+            continue
+        parts = [
+            str(part.get("text") or "").strip()
+            for part in content
+            if isinstance(part, dict)
+            and part.get("type") in {"text", "input_text"}
+        ]
+        text = "\n".join(part for part in parts if part)
+        if text:
+            texts.append(text)
+    return texts[:-1][-4:]
+
+
 def _prepare_session_route(
     request: Request,
     body: dict[str, Any],
@@ -2431,6 +2523,37 @@ def _prepare_session_route(
         explicit_intent=identity.explicit_intent,
         task_similarity_threshold=ROUTER_TASK_CHANGE_SIMILARITY,
     )
+    force_reclassify = False
+    task_boundary_meta: dict[str, Any] | None = None
+    if previous is not None and ROUTER_TASK_CHANGE_MODE == "safe_hybrid":
+        boundary_case = task_change_runtime_case(
+            identity,
+            previous,
+            history_user_texts=_recent_user_texts(messages),
+        )
+        boundary = task_change_hard_rule(boundary_case)
+        if boundary is None:
+            policy = _task_change_policy()
+            if policy is not None:
+                boundary = policy.decide(boundary_case)
+            else:
+                boundary = safe_heuristic_decision(decision)
+        decision = type(decision)(
+            boundary.intent,
+            boundary.source,
+            boundary.reason,
+            boundary.similarity,
+        )
+        force_reclassify = boundary.force_reclassify
+        task_boundary_meta = {
+            "mode": "safe_hybrid",
+            "intent": boundary.intent,
+            "reason": boundary.reason,
+            "change_probability": boundary.change_probability,
+            "force_reclassify": boundary.force_reclassify,
+            "safe_for_quality": boundary.safe_for_quality,
+            "model_error": _TASK_CHANGE_POLICY_ERROR,
+        }
     quality_feedback = str(
         request.headers.get("x-squilla-quality-feedback")
         or request.headers.get("x-squilla-retry-reason")
@@ -2451,6 +2574,7 @@ def _prepare_session_route(
         previous
         and previous.tier in TIERS
         and (valid_tiers is None or previous.tier in valid_tiers)
+        and not force_reclassify
     )
     route_info = None
     minimum_tier = None
@@ -2493,6 +2617,8 @@ def _prepare_session_route(
             valid_tiers=valid_tiers,
             context_tokens_estimate=full_context_tokens,
         )
+    if task_boundary_meta is not None:
+        route_info["task_boundary"] = task_boundary_meta
     task_class = classify_task(body)
     route_info["task_class"] = task_class
     raw_classifier_tier = ROUTE_CLASS_TO_TIER.get(
@@ -2586,9 +2712,19 @@ def _prepare_session_route(
     if decision.intent in {"new_task", "task_changed"} or previous is None:
         task_id = identity.task_id_hint or uuid4().hex
         task_anchor = identity.anchor or identity.latest_user_text
+        task_goal = identity.anchor or identity.latest_user_text
     else:
         task_id = previous.task_id
         task_anchor = previous.task_anchor
+        task_goal = (
+            identity.latest_user_text
+            if force_reclassify and identity.latest_user_text
+            else (
+                getattr(previous, "task_goal", "")
+                or previous.task_anchor
+                or identity.latest_user_text
+            )
+        )
 
     return SessionRoutePlan(
         identity=identity,
@@ -2602,6 +2738,8 @@ def _prepare_session_route(
         route_info=route_info,
         sticky=decision.intent == "continue" and reusable,
         minimum_tier=minimum_tier,
+        force_reclassify=force_reclassify,
+        task_goal=task_goal,
     )
 
 
@@ -2638,6 +2776,7 @@ def _record_session_route(
                 plan.route_info.get("thinking_mode"), actual_tier
             ),
             prompt_policy=str(plan.route_info.get("prompt_policy") or "P1"),
+            task_goal=plan.task_goal,
             previous=plan.previous,
         )
         if plan.previous and plan.previous.forced_intent:
@@ -2658,6 +2797,19 @@ def _attach_session_headers(
     response: JSONResponse | StreamingResponse, plan: SessionRoutePlan
 ) -> None:
     response.headers["X-Squilla-Session-Id"] = plan.identity.session_id
+    response.headers["X-Squilla-Force-Reclassify"] = (
+        "1" if plan.force_reclassify else "0"
+    )
+    task_boundary = plan.route_info.get("task_boundary")
+    if isinstance(task_boundary, dict):
+        response.headers["X-Squilla-Task-Boundary"] = str(
+            task_boundary.get("reason") or ""
+        )
+        probability = task_boundary.get("change_probability")
+        if probability is not None:
+            response.headers["X-Squilla-Task-Change-Probability"] = (
+                f"{float(probability):.4f}"
+            )
     response.headers["X-Squilla-Task-Id"] = plan.task_id
     response.headers["X-Squilla-Intent"] = plan.intent
     response.headers["X-Squilla-Intent-Source"] = plan.intent_source
@@ -3411,6 +3563,12 @@ async def router_status():
             "task_change_similarity": ROUTER_TASK_CHANGE_SIMILARITY,
             "cost_aware_enabled": ROUTER_COST_AWARE_ENABLED,
             "min_profile_observations": ROUTER_MIN_PROFILE_OBSERVATIONS,
+            "task_change_mode": ROUTER_TASK_CHANGE_MODE,
+            "task_change_hard_threshold": ROUTER_TASK_CHANGE_HARD_THRESHOLD,
+            "task_change_soft_threshold": ROUTER_TASK_CHANGE_SOFT_THRESHOLD,
+            "task_change_model": ROUTER_TASK_CHANGE_MODEL,
+            "task_change_policy_ready": _task_change_policy() is not None,
+            "task_change_policy_error": _TASK_CHANGE_POLICY_ERROR,
         },
         "providers": {name: {"base_url": p.get("base_url",""), "configured": bool(p.get("api_key"))} for name, p in PROVIDERS.items()},
         "tiers": tiers_out,

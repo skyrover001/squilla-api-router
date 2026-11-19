@@ -163,6 +163,7 @@ class RouteState:
     revision: int
     turn_count: int
     updated_at: float
+    task_goal: str = ""
 
 
 @dataclass(frozen=True)
@@ -410,6 +411,7 @@ class RoutingStateStore:
                     session_id TEXT PRIMARY KEY,
                     task_id TEXT NOT NULL,
                     task_anchor TEXT NOT NULL,
+                    task_goal TEXT NOT NULL DEFAULT '',
                     system_hash TEXT NOT NULL,
                     tools_hash TEXT NOT NULL,
                     tier TEXT NOT NULL,
@@ -455,6 +457,10 @@ class RoutingStateStore:
             if "repeated_tool_count" not in state_columns:
                 connection.execute(
                     "ALTER TABLE routing_state ADD COLUMN repeated_tool_count INTEGER NOT NULL DEFAULT 0"
+                )
+            if "task_goal" not in state_columns:
+                connection.execute(
+                    "ALTER TABLE routing_state ADD COLUMN task_goal TEXT NOT NULL DEFAULT ''"
                 )
             if self.ttl_seconds:
                 connection.execute(
@@ -575,6 +581,7 @@ class RoutingStateStore:
         base_url: str,
         thinking_mode: str,
         prompt_policy: str,
+        task_goal: str = "",
         previous: RouteState | None = None,
     ) -> RouteState:
         turn_count = (previous.turn_count + 1) if previous else 1
@@ -586,16 +593,18 @@ class RoutingStateStore:
                     connection.execute(
                         """
                         INSERT INTO routing_state (
-                            session_id, task_id, task_anchor, system_hash, tools_hash,
+                            session_id, task_id, task_anchor, task_goal,
+                            system_hash, tools_hash,
                             tier, route_class, model, provider, api_format, base_url,
                             thinking_mode, prompt_policy, forced_intent,
                             forced_reason, revision, turn_count, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 1, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', 1, ?, ?)
                         """,
                         (
                             identity.session_id,
                             task_id,
                             task_anchor,
+                            task_goal,
                             identity.system_hash,
                             identity.tools_hash,
                             tier,
@@ -616,7 +625,7 @@ class RoutingStateStore:
                 cursor = connection.execute(
                     """
                     UPDATE routing_state SET
-                        task_id = ?, task_anchor = ?, system_hash = ?,
+                        task_id = ?, task_anchor = ?, task_goal = ?, system_hash = ?,
                         tools_hash = ?, tier = ?, route_class = ?, model = ?,
                         provider = ?, api_format = ?, base_url = ?,
                         thinking_mode = ?, prompt_policy = ?, revision = ?,
@@ -626,6 +635,7 @@ class RoutingStateStore:
                     (
                         task_id,
                         task_anchor,
+                        task_goal,
                         identity.system_hash,
                         identity.tools_hash,
                         tier,
@@ -649,6 +659,7 @@ class RoutingStateStore:
             session_id=identity.session_id,
             task_id=task_id,
             task_anchor=task_anchor,
+            task_goal=task_goal,
             system_hash=identity.system_hash,
             tools_hash=identity.tools_hash,
             tier=tier,

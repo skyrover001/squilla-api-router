@@ -31,3 +31,4 @@ benchmarks/opencode_*_task/
 pytest-cache-files-*/
 tests/.state-*.db
 tests/.matrix-*.db
+tests/.soft-boundary-*.db

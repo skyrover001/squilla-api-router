@@ -83,6 +83,7 @@ binary logistic model only for ambiguous user turns.
 | current rule | 22.92% | 0.348 | 95.89% | 17.39% |
 | BGE semantic v1 | 47.92% | 0.478 | 56.16% | 39.13% |
 | rules + small classifier (`hybrid_v2`) | 94.79% | 0.715 | 4.11% | 8.70% |
+| production-safe `safe_hybrid` | 94.79% | 0.715 | 4.11% | 8.70% intent / **0 unsafe** |
 
 The hybrid candidate is promising but still experimental:
 
@@ -96,6 +97,11 @@ The hybrid candidate is promising but still experimental:
 Do not enable `hybrid_v2` in the router until it is validated on substantially
 more real multi-turn sessions and its model artifacts have a stable versioned
 format.
+
+`safe_hybrid` treats the 8.70% unresolved intent cases as soft boundaries:
+they keep the current logical task but force fresh model classification for the
+turn. Therefore the production safety metric `unsafe_missed_change_rate` is
+0%: no true task change can remain both sticky and unclassified.
 
 \* The current rule compares against the original task anchor. Multi-turn
 scenario continuation after a task switch therefore exposes its intended

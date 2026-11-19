@@ -48,6 +48,9 @@ from squilla_api_router.routing_state import (  # noqa: E402
     decide_intent,
     text_similarity,
 )
+from squilla_api_router.task_change_policy import (  # noqa: E402
+    hard_rule_decision as production_hard_rule_decision,
+)
 from squilla_api_router.v4_runtime.bge_onnx import OnnxBGE  # noqa: E402
 
 
@@ -175,6 +178,8 @@ def _feature_rows(
 def _fit_hybrid(
     train_cases: list[dict[str, Any]],
     encoder: OnnxBGE,
+    *,
+    threshold_override: float | None = None,
 ) -> dict[str, Any]:
     ambiguous: list[dict[str, Any]] = []
     for case in train_cases:
@@ -235,12 +240,15 @@ def _fit_hybrid(
             predicted = out_of_fold >= candidate
             false_split = int(np.sum((labels == 0) & predicted))
             missed_change = int(np.sum((labels == 1) & ~predicted))
-            # Quality first: a missed task change is twice as costly as a
-            # same-task split. Ties prefer the higher threshold.
-            cost = false_split + 2 * missed_change
+            # Production-safe routing treats a missed task change as a quality
+            # failure because it can keep a new task on an underpowered model.
+            # A false split is acceptable: it merely re-runs model selection.
+            cost = false_split + 20 * missed_change
             candidates.append((float(cost), -candidate, false_split, missed_change))
         _, negative_threshold, _, _ = min(candidates)
         threshold = -negative_threshold
+    if threshold_override is not None:
+        threshold = min(max(float(threshold_override), 0.0), 1.0)
     numeric_names = [
         "goal_bge",
         "anchor_bge",
@@ -328,6 +336,7 @@ def run(
     train_path: Path = TRAIN,
     holdout_path: Path = HOLDOUT,
     bge_model_dir: Path = ROOT / "model_bundle" / "bge_onnx",
+    threshold_override: float | None = None,
 ) -> dict[str, Any]:
     train_cases = load_cases(train_path)
     holdout_cases = load_cases(holdout_path)
@@ -338,7 +347,11 @@ def run(
         raise ValueError(f"train/holdout id overlap: {sorted(overlap)}")
 
     encoder = OnnxBGE(bge_model_dir)
-    fitted = _fit_hybrid(train_cases, encoder)
+    fitted = _fit_hybrid(
+        train_cases,
+        encoder,
+        threshold_override=threshold_override,
+    )
     hybrid_predictions, change_probabilities = _predict_hybrid(
         holdout_cases,
         fitted,
@@ -361,6 +374,17 @@ def run(
             low_threshold=0.50,
             high_threshold=0.78,
         )
+        probability = change_probabilities[case["id"]]
+        boundary_hard = production_hard_rule_decision(case)
+        if boundary_hard is not None:
+            safe_hybrid = boundary_hard.intent
+            safe_force_reclassify = False
+        elif probability >= 0.45:
+            safe_hybrid = "task_changed"
+            safe_force_reclassify = False
+        else:
+            safe_hybrid = "continue"
+            safe_force_reclassify = probability >= 0.20
         rows.append(
             {
                 "id": case["id"],
@@ -370,8 +394,10 @@ def run(
                 "semantic_v1": semantic,
                 "semantic_reason": semantic_reason,
                 "hybrid_v2": hybrid,
+                "safe_hybrid": safe_hybrid,
+                "safe_force_reclassify": safe_force_reclassify,
                 "change_probability": round(
-                    change_probabilities[case["id"]],
+                    probability,
                     6,
                 ),
                 "goal_similarity": round(goal_similarity, 6),
@@ -381,6 +407,22 @@ def run(
         )
 
     fresh_rows = [row for row in rows if str(row["id"]).startswith("v2-")]
+    safe_summary = _metrics(rows, "safe_hybrid")
+    safe_summary["unsafe_missed_change_count"] = sum(
+        1
+        for row in rows
+        if row["expected"] == "task_changed"
+        and row["safe_hybrid"] != "task_changed"
+        and not row["safe_force_reclassify"]
+    )
+    safe_summary["unsafe_missed_change_rate"] = round(
+        safe_summary["unsafe_missed_change_count"]
+        / max(
+            1,
+            sum(row["expected"] == "task_changed" for row in rows),
+        ),
+        6,
+    )
     return {
         "train_dataset": str(train_path),
         "holdout_dataset": str(holdout_path),
@@ -401,12 +443,16 @@ def run(
             }
             for key in ("current_rule", "semantic_v1", "hybrid_v2")
         },
+        "safe_hybrid_summary": {
+            **safe_summary,
+            "by_category": _category_metrics(rows, "safe_hybrid"),
+        },
         "fresh_scenario_summary": {
             key: {
                 **_metrics(fresh_rows, key),
                 "by_category": _category_metrics(fresh_rows, key),
             }
-            for key in ("current_rule", "semantic_v1", "hybrid_v2")
+            for key in ("current_rule", "semantic_v1", "hybrid_v2", "safe_hybrid")
         },
         "rows": rows,
     }
@@ -438,6 +484,12 @@ def main() -> None:
         default=ROOT / "model_bundle" / "bge_onnx",
     )
     parser.add_argument("--repeat", type=int, default=3)
+    parser.add_argument(
+        "--safe-threshold",
+        type=float,
+        default=None,
+        help="Override the OOF threshold; lower values favor catching task changes.",
+    )
     parser.add_argument("--output", type=Path, default=OUTPUT)
     args = parser.parse_args()
     if args.repeat < 1:
@@ -448,6 +500,7 @@ def main() -> None:
             train_path=args.train,
             holdout_path=args.holdout,
             bge_model_dir=args.bge_model_dir,
+            threshold_override=args.safe_threshold,
         )
         for _ in range(args.repeat)
     ]
@@ -472,6 +525,22 @@ def main() -> None:
         }
         for key in ("current_rule", "semantic_v1", "hybrid_v2")
     }
+    summary["safe_hybrid"] = {
+        metric: value
+        for metric, value in result["safe_hybrid_summary"].items()
+        if metric
+        in {
+            "cases",
+            "accuracy",
+            "macro_f1",
+            "false_split_count",
+            "false_split_rate",
+            "missed_change_count",
+            "missed_change_rate",
+            "unsafe_missed_change_count",
+            "unsafe_missed_change_rate",
+        }
+    }
     print(
         json.dumps(
             {
@@ -479,6 +548,16 @@ def main() -> None:
                 "holdout_cases": result["holdout_cases"],
                 "ambiguous_train_cases": result["ambiguous_train_cases"],
                 "summary": summary,
+                "safe_hybrid_quality": {
+                    key: value
+                    for key, value in result["safe_hybrid_summary"].items()
+                    if key
+                    in {
+                        "unsafe_missed_change_count",
+                        "unsafe_missed_change_rate",
+                        "false_split_rate",
+                    }
+                },
             },
             ensure_ascii=False,
             indent=2,
