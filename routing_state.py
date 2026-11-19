@@ -218,6 +218,14 @@ class StateConflict(RuntimeError):
 def resolve_request_identity(
     headers: Mapping[str, str], body: Mapping[str, Any]
 ) -> RequestIdentity:
+    tenant_id = _first_header(
+        headers,
+        (
+            "x-squilla-tenant-id",
+            "x-tenant-id",
+            "x-workspace-id",
+        ),
+    )
     explicit_session = _first_header(
         headers,
         (
@@ -253,6 +261,11 @@ def resolve_request_identity(
     )
     metadata = body.get("metadata")
     if isinstance(metadata, dict):
+        tenant_id = tenant_id or str(
+            metadata.get("tenant_id")
+            or metadata.get("workspace_id")
+            or ""
+        ).strip()
         explicit_intent = explicit_intent or str(
             metadata.get("intent") or metadata.get("routing_intent") or ""
         ).strip()
@@ -294,6 +307,8 @@ def resolve_request_identity(
         ).encode("utf-8")
     ).hexdigest()
     session_id = explicit_session or f"fp:{fingerprint}"
+    if tenant_id:
+        session_id = f"{tenant_id}:{session_id}"
     return RequestIdentity(
         session_id=session_id,
         explicit_session=bool(explicit_session),
