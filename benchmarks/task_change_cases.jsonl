@@ -1,0 +1,53 @@
+{"id":"explicit-continue-01","category":"explicit_continue","anchor":"写一个读取 JSON 文件并打印指定字段的 Python 脚本。","task_goal":"实现并完善 JSON 字段读取脚本","latest":"继续增加异常处理和单元测试。","expected":"continue","last_role":"user"}
+{"id":"explicit-continue-02","category":"explicit_continue","anchor":"解释 JWT 的组成和常见安全风险。","task_goal":"解释 JWT 结构与风险","latest":"继续，补充算法混淆攻击的例子。","expected":"continue","last_role":"user"}
+{"id":"explicit-continue-03","category":"explicit_continue","anchor":"为订单服务设计重试策略。","task_goal":"设计订单服务重试策略","latest":"接着上面的方案，比较指数退避和固定间隔。","expected":"continue","last_role":"user"}
+{"id":"explicit-continue-04","category":"explicit_continue","anchor":"Review this pull request for race conditions.","task_goal":"Review the current pull request for race conditions","latest":"Continue and focus on the cancellation path.","expected":"continue","last_role":"user"}
+{"id":"explicit-continue-05","category":"explicit_continue","anchor":"优化这段 SQL 查询。","task_goal":"优化当前 SQL 查询","latest":"继续，基于刚才的索引方案给出执行计划。","expected":"continue","last_role":"user"}
+{"id":"explicit-continue-06","category":"explicit_continue","anchor":"把产品说明翻译成英文。","task_goal":"将产品说明翻译成英文","latest":"继续翻译，保持统一术语。","expected":"continue","last_role":"user"}
+{"id":"implicit-continue-01","category":"implicit_continue","anchor":"写一个读取 JSON 文件并打印指定字段的 Python 脚本。","task_goal":"实现 JSON 字段读取脚本","latest":"补上文件不存在和字段缺失时的错误提示。","expected":"continue","last_role":"user"}
+{"id":"implicit-continue-02","category":"implicit_continue","anchor":"分析这个登录接口为什么偶发 502。","task_goal":"定位登录接口偶发 502 的原因","latest":"检查上游连接池耗尽后上游超时重试造成的放大效应。","expected":"continue","last_role":"user"}
+{"id":"implicit-continue-03","category":"implicit_continue","anchor":"为 add(a,b) 写 pytest 测试。","task_goal":"完善 add 函数的 pytest 测试","latest":"加入 float、负数和小数的情况。","expected":"continue","last_role":"user"}
+{"id":"implicit-continue-04","category":"implicit_continue","anchor":"Compare PostgreSQL and MySQL for this workload.","task_goal":"Compare PostgreSQL and MySQL for the current workload","latest":"Include replication lag and failover behavior in the comparison.","expected":"continue","last_role":"user"}
+{"id":"implicit-continue-05","category":"implicit_continue","anchor":"优化移动端首页加载速度。","task_goal":"优化移动端首页加载性能","latest":"再测一下首屏 LCP 和图片懒加载的收益。","expected":"continue","last_role":"user"}
+{"id":"implicit-continue-06","category":"implicit_continue","anchor":"把这段中文技术说明翻成英文。","task_goal":"将中文技术说明翻译成英文","latest":"统一 API、deployment 和 cluster 这几个词的译法。","expected":"continue","last_role":"user"}
+{"id":"implicit-continue-07","category":"implicit_continue","anchor":"设计订单服务重试策略。","task_goal":"完善订单服务重试设计","latest":"加上幂等键、最大重试次数和熔断条件。","expected":"continue","last_role":"user"}
+{"id":"implicit-continue-08","category":"implicit_continue","anchor":"重构 parser.py 中的参数解析逻辑。","task_goal":"重构 parser.py 参数解析逻辑","latest":"把长函数拆开，但不要改变命令行参数。","expected":"continue","last_role":"user"}
+{"id":"explicit-redo-01","category":"explicit_redo","anchor":"解释 CAP 定理。","task_goal":"解释 CAP 定理","latest":"重新生成，刚才的例子不够准确。","expected":"redo","last_role":"user"}
+{"id":"explicit-redo-02","category":"explicit_redo","anchor":"写一个 Go 的 worker pool。","task_goal":"实现 Go worker pool","latest":"再试一次，用更简洁的实现。","expected":"redo","last_role":"user"}
+{"id":"explicit-redo-03","category":"explicit_redo","anchor":"Generate a deployment checklist.","task_goal":"Generate a deployment checklist","latest":"Regenerate it with the rollback steps first.","expected":"redo","last_role":"user"}
+{"id":"explicit-redo-04","category":"explicit_redo","anchor":"把这段说明翻译成日文。","task_goal":"翻译说明为日文","latest":"重做，语气再正式一些。","expected":"redo","last_role":"user"}
+{"id":"explicit-new-01","category":"explicit_new_task","anchor":"写一个 Python JSON 读取脚本。","task_goal":"实现 JSON 读取脚本","latest":"换个任务，帮我分析 Nginx 访问日志。","expected":"task_changed","last_role":"user"}
+{"id":"explicit-new-02","category":"explicit_new_task","anchor":"解释 JWT。","task_goal":"解释 JWT","latest":"另外做一个任务：为登录接口写压测方案。","expected":"task_changed","last_role":"user"}
+{"id":"explicit-new-03","category":"explicit_new_task","anchor":"Review the current diff.","task_goal":"Review current diff","latest":"New task: draft the release notes for this version.","expected":"task_changed","last_role":"user"}
+{"id":"explicit-new-04","category":"explicit_new_task","anchor":"优化 SQL 查询。","task_goal":"优化 SQL 查询","latest":"现在做另一个任务，比较两种缓存方案。","expected":"task_changed","last_role":"user"}
+{"id":"tool-continue-01","category":"tool_continuation","anchor":"修复用户注册接口的空指针异常。","task_goal":"修复注册接口空指针异常","latest":"{\"exit_code\":0,\"stdout\":\"tests passed\"}","expected":"continue","last_role":"tool"}
+{"id":"tool-continue-02","category":"tool_continuation","anchor":"分析生产日志中的 500 错误。","task_goal":"定位生产日志 500 错误","latest":"Traceback: connection reset by peer","expected":"continue","last_role":"tool_result"}
+{"id":"tool-continue-03","category":"tool_continuation","anchor":"Refactor the parser and run tests.","task_goal":"Refactor parser and run tests","latest":"pytest completed with 18 passed.","expected":"continue","last_role":"function"}
+{"id":"tool-continue-04","category":"tool_continuation","anchor":"检查依赖是否存在安全漏洞。","task_goal":"检查依赖漏洞","latest":"npm audit found 2 high severity issues.","expected":"continue","last_role":"tool"}
+{"id":"repeated-01","category":"repeated_prompt","anchor":"写一个快速排序实现。","task_goal":"实现快速排序","latest":"写一个快速排序实现。","expected":"redo","last_role":"user"}
+{"id":"repeated-02","category":"repeated_prompt","anchor":"Summarize the incident timeline.","task_goal":"Summarize incident timeline","latest":"Summarize the incident timeline.","expected":"redo","last_role":"user"}
+{"id":"shared-change-01","category":"task_changed_shared_domain","anchor":"修复登录接口偶发 502。","task_goal":"定位并修复登录接口 502","latest":"给登录页增加短信验证码和频率限制。","expected":"task_changed","last_role":"user"}
+{"id":"shared-change-02","category":"task_changed_shared_domain","anchor":"优化订单查询 SQL 的索引。","task_goal":"优化订单查询索引","latest":"设计订单退款接口的数据库表结构。","expected":"task_changed","last_role":"user"}
+{"id":"shared-change-03","category":"task_changed_shared_domain","anchor":"检查 Python parser 的异常处理。","task_goal":"修复 parser 异常处理","latest":"写一个 Python CLI 来批量转换 CSV 文件。","expected":"task_changed","last_role":"user"}
+{"id":"shared-change-04","category":"task_changed_shared_domain","anchor":"Review the authentication middleware for security issues.","task_goal":"Review authentication middleware security","latest":"Add password reset endpoints and email verification.","expected":"task_changed","last_role":"user"}
+{"id":"shared-change-05","category":"task_changed_shared_domain","anchor":"分析登录失败的日志。","task_goal":"分析登录失败日志","latest":"实现登录成功率的监控看板和告警规则。","expected":"task_changed","last_role":"user"}
+{"id":"shared-change-06","category":"task_changed_shared_domain","anchor":"优化 React 首页组件性能。","task_goal":"优化 React 首页性能","latest":"为 React 组件库设计一套主题变量。","expected":"task_changed","last_role":"user"}
+{"id":"shared-change-07","category":"task_changed_shared_domain","anchor":"解释 Kubernetes readiness probe。","task_goal":"解释 readiness probe","latest":"部署一套 Kubernetes 蓝绿发布流水线。","expected":"task_changed","last_role":"user"}
+{"id":"shared-change-08","category":"task_changed_shared_domain","anchor":"Tune PostgreSQL indexes for the orders table.","task_goal":"Tune PostgreSQL order indexes","latest":"Write a PostgreSQL migration for tenant-level row security.","expected":"task_changed","last_role":"user"}
+{"id":"cross-change-01","category":"task_changed_cross_domain","anchor":"写一个 Python JSON 读取脚本。","task_goal":"实现 JSON 读取脚本","latest":"帮我比较三种家用 NAS 备份方案。","expected":"task_changed","last_role":"user"}
+{"id":"cross-change-02","category":"task_changed_cross_domain","anchor":"解释 JWT 安全风险。","task_goal":"解释 JWT 风险","latest":"把这份产品介绍翻译成英文。","expected":"task_changed","last_role":"user"}
+{"id":"cross-change-03","category":"task_changed_cross_domain","anchor":"优化移动端首页加载速度。","task_goal":"优化首页加载性能","latest":"下周去上海出差，帮我安排三天行程。","expected":"task_changed","last_role":"user"}
+{"id":"cross-change-04","category":"task_changed_cross_domain","anchor":"Review this pull request.","task_goal":"Review current pull request","latest":"Draft a customer-facing outage notification.","expected":"task_changed","last_role":"user"}
+{"id":"cross-change-05","category":"task_changed_cross_domain","anchor":"修复订单服务超时。","task_goal":"修复订单服务超时","latest":"解释一下什么是向量数据库。","expected":"task_changed","last_role":"user"}
+{"id":"cross-change-06","category":"task_changed_cross_domain","anchor":"生成 SQL 建表语句。","task_goal":"生成 SQL 建表语句","latest":"写一首关于秋天的七言诗。","expected":"task_changed","last_role":"user"}
+{"id":"cross-change-07","category":"task_changed_cross_domain","anchor":"Compare Redis and Memcached.","task_goal":"Compare Redis and Memcached","latest":"Plan a two-week vacation in Japan.","expected":"task_changed","last_role":"user"}
+{"id":"cross-change-08","category":"task_changed_cross_domain","anchor":"排查 CI 构建失败。","task_goal":"排查 CI 构建失败","latest":"把会议录音整理成行动项。","expected":"task_changed","last_role":"user"}
+{"id":"terse-continue-01","category":"terse_continue","anchor":"修复登录接口偶发 502。","task_goal":"修复登录接口 502","latest":"继续。","expected":"continue","last_role":"user"}
+{"id":"terse-continue-02","category":"terse_continue","anchor":"解释 Raft 的选主过程。","task_goal":"解释 Raft 选主","latest":"再详细一点。","expected":"continue","last_role":"user"}
+{"id":"terse-continue-03","category":"terse_continue","anchor":"Review this SQL migration.","task_goal":"Review SQL migration","latest":"Go on.","expected":"continue","last_role":"user"}
+{"id":"terse-continue-04","category":"terse_continue","anchor":"优化首页图片加载。","task_goal":"优化首页图片加载","latest":"按刚才第二个方案改。","expected":"continue","last_role":"user"}
+{"id":"terse-continue-05","category":"terse_continue","anchor":"写一个 CSV 转 JSON 脚本。","task_goal":"实现 CSV 转 JSON 脚本","latest":"补上测试。","expected":"continue","last_role":"user"}
+{"id":"system-change-01","category":"session_contract_change","anchor":"修复解析器。","task_goal":"修复解析器","latest":"这里改用新的工具集继续处理。","expected":"task_changed","last_role":"user","tools_changed":true}
+{"id":"system-change-02","category":"session_contract_change","anchor":"Review the API contract.","task_goal":"Review API contract","latest":"Now operate under the new coding policy.","expected":"task_changed","last_role":"user","system_changed":true}
+{"id":"system-change-03","category":"session_contract_change","anchor":"分析日志。","task_goal":"分析日志","latest":"换成只读工具后继续排查。","expected":"task_changed","last_role":"user","tools_changed":true}
+{"id":"system-change-04","category":"session_contract_change","anchor":"实现缓存层。","task_goal":"实现缓存层","latest":"在新的代码代理配置下继续。","expected":"task_changed","last_role":"user","system_changed":true}
