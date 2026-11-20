@@ -373,8 +373,9 @@ OpenCode / 智能体接入时：
 
 ```text
 # Provider 表：端点 + key 只在此定义
-BACKEND_BASE_URL=https://chat.tianhe-tech.com/v1
-BACKEND_API_KEY=your-key
+PROVIDER_TIANHE_BASE_URL=https://chat.tianhe-tech.com/v1
+PROVIDER_TIANHE_API_KEY=your-key
+PROVIDER_TIANHE_FORMAT=openai_chat
 
 # 每个 tier：只填模型 + 能力标志
 C0_MODEL=Qwen3.8-27B
@@ -412,9 +413,9 @@ Provider / Tier 均为**环境变量自动发现**，新增后端或档位只需
 
 ```text
 # 新增一个 provider（任意前缀）：
-DEEPSEEK_BASE_URL=https://api.deepseek.com/anthropic
-DEEPSEEK_API_KEY=your-deepseek-key
-DEEPSEEK_FORMAT=anthropic
+PROVIDER_DEEPSEEK_BASE_URL=https://api.deepseek.com/anthropic
+PROVIDER_DEEPSEEK_API_KEY=your-deepseek-key
+PROVIDER_DEEPSEEK_FORMAT=anthropic
 
 # 让任意档位指向它：
 C2_PROVIDER=deepseek
@@ -426,7 +427,10 @@ C2_MODEL=deepseek-chat
 - 任何 `<前缀>_BASE_URL` 自动注册一个 provider（前缀小写）；`<前缀>_API_KEY`、`<前缀>_FORMAT` 同组读取
 - `<前缀>_FORMAT` 可省略：按 base_url 路径推断（含 `/anthropic` 或 `/messages` → `anthropic`，否则 `openai_chat`）
 - 任何 `C<数字>_MODEL` 按数字排序自动生成档位 `c0..cN`（数量不限）
-- `C<N>_PROVIDER` 默认 `tianhe`（`BACKEND_*` 前缀即该 provider 的别名）
+- `C<N>_PROVIDER` 默认 `tianhe`
+- 推荐 Provider 使用 `PROVIDER_<NAME>_BASE_URL / _API_KEY / _FORMAT`
+- 兼容 `<PREFIX>_BASE_URL`，此时 Provider 名就是 `<PREFIX>` 小写
+- 两种形式同名时，`PROVIDER_*` 显式配置优先；不存在代码写死的名称别名
 
 ## 思维强度路由（默认开启，可关闭）
 
@@ -530,9 +534,9 @@ C3_REASONING_DEFAULT_MODE=auto
 每个档位在 `.env` 里用 `SUPPORTS_IMAGE` / `SUPPORTS_VIDEO` 标注多模态能力：
 
 ```text
-BACKEND_BASE_URL=https://your-openai-compatible-maas/v1
-BACKEND_API_KEY=your-key
-BACKEND_FORMAT=openai_chat
+PROVIDER_MAAS_BASE_URL=https://your-openai-compatible-maas/v1
+PROVIDER_MAAS_API_KEY=your-key
+PROVIDER_MAAS_FORMAT=openai_chat
 
 # c0: 支持图片
 C0_MODEL=Qwen3.8-27B

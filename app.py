@@ -411,20 +411,18 @@ VISION_API_KEY = os.environ.get("VISION_API_KEY", os.environ.get("BACKEND_API_KE
 # ---------------------------------------------------------------------------
 # Provider / tier autodiscovery.
 #
-# Providers are discovered from the environment: any <PREFIX>_BASE_URL
-# registers a provider named <prefix> (lowercased).  The legacy
-# BACKEND_* prefix is aliased to provider name tianhe.  Each provider
-# reads <PREFIX>_API_KEY and <PREFIX>_FORMAT.
+# Providers are discovered from the environment.  The canonical form is:
+#   PROVIDER_<NAME>_BASE_URL
+#   PROVIDER_<NAME>_API_KEY
+#   PROVIDER_<NAME>_FORMAT
+# The generic / legacy form <PREFIX>_BASE_URL remains supported, with the
+# provider name taken literally from <PREFIX>.  Explicit PROVIDER_* entries
+# take precedence if both forms define the same normalized name.
 #
 # Tiers are discovered from C<N>_MODEL (+ optional C<N>_PROVIDER,
 # C<N>_SUPPORTS_IMAGE/VIDEO) and sorted by N, producing c0..cN.
 # The V4 classifier routes R0..R(n-1), mapped 1:1 to the discovered tiers.
 # ---------------------------------------------------------------------------
-_PROVIDER_BASE_URL_KEYS = {
-    "BACKEND": "tianhe",  # legacy alias
-}
-
-
 def _normalize_format(fmt: str) -> str:
     fmt = (fmt or "").strip().lower()
     if fmt in ("/responses", "responses", "openai_responses"):
@@ -437,27 +435,48 @@ def _normalize_format(fmt: str) -> str:
 
 
 def _discover_providers() -> dict[str, dict[str, str]]:
-    prov: dict[str, dict[str, str]] = {}
-    for key, val in os.environ.items():
-        up = key.upper()
-        if not up.endswith("_BASE_URL") or not val.strip():
-            continue
-        prefix = up[:-len("_BASE_URL")]
-        if prefix in ("VISION", "ROUTER"):
-            continue
-        name = _PROVIDER_BASE_URL_KEYS.get(prefix, prefix.lower())
-        fmt = os.environ.get(f"{prefix}_FORMAT", "")
-        # If no explicit FORMAT, infer from the endpoint path.
-        if not fmt.strip():
-            if "/anthropic" in val or val.endswith("/messages"):
+    def normalize_name(value: str) -> str:
+        name = value.strip().lower()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{0,63}", name):
+            return ""
+        return name
+
+    def specs() -> list[tuple[bool, str, str, str]]:
+        found: list[tuple[bool, str, str, str]] = []
+        for key in sorted(os.environ):
+            up = key.upper()
+            if not up.endswith("_BASE_URL"):
+                continue
+            base_url = os.environ.get(key, "").strip()
+            if not base_url:
+                continue
+            prefix = up[: -len("_BASE_URL")]
+            explicit = prefix.startswith("PROVIDER_")
+            raw_name = prefix[len("PROVIDER_") :] if explicit else prefix
+            found.append((explicit, prefix, raw_name, base_url))
+        return found
+
+    providers: dict[str, dict[str, str]] = {}
+    # Process the canonical namespace second so it wins over generic prefixes.
+    for explicit in (False, True):
+        for is_explicit, prefix, raw_name, base_url in specs():
+            if is_explicit != explicit:
+                continue
+            name = normalize_name(raw_name)
+            if not name:
+                logger.warning("invalid provider name in %s_BASE_URL", prefix)
+                continue
+            fmt = os.environ.get(f"{prefix}_FORMAT", "")
+            if not fmt.strip() and (
+                "/anthropic" in base_url or base_url.endswith("/messages")
+            ):
                 fmt = "anthropic"
-        fmt = _normalize_format(fmt)
-        prov[name] = {
-            "base_url": val.rstrip("/"),
-            "api_key": os.environ.get(f"{prefix}_API_KEY", ""),
-            "format": fmt,
-        }
-    return prov
+            providers[name] = {
+                "base_url": base_url.rstrip("/"),
+                "api_key": os.environ.get(f"{prefix}_API_KEY", ""),
+                "format": _normalize_format(fmt),
+            }
+    return providers
 
 
 def _parse_reasoning_capability(prefix: str) -> dict | None:
