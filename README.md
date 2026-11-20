@@ -107,6 +107,144 @@ uvicorn app:app --host 127.0.0.1 --port 8021
 
 ## 智能体接入
 
+### 当前版本生产快速配置
+
+以下配置适合直接部署本项目。Provider 使用显式 `PROVIDER_<NAME>_*`
+命名空间，不存在任何名称别名硬编码。
+
+```env
+# Router auth
+ROUTER_API_KEY=replace-with-a-long-random-key
+
+# Provider: 天河 OpenAI Chat
+PROVIDER_TIANHE_BASE_URL=https://chat.tianhe-tech.com/v1
+PROVIDER_TIANHE_API_KEY=replace-after-key-rotation
+PROVIDER_TIANHE_FORMAT=openai_chat
+
+# Provider: Starfire OpenAI Responses
+PROVIDER_STARFIRE_BASE_URL=http://111.228.58.164/v1
+PROVIDER_STARFIRE_API_KEY=replace-after-key-rotation
+PROVIDER_STARFIRE_FORMAT=openai_responses
+
+# Tiers
+C0_PROVIDER=tianhe
+C0_MODEL=Qwen3.8-27B
+C0_SUPPORTS_IMAGE=1
+C0_SUPPORTS_VIDEO=0
+
+C1_PROVIDER=starfire
+C1_MODEL=Qwen3.5-397B-A17B
+C1_SUPPORTS_IMAGE=1
+C1_SUPPORTS_VIDEO=0
+
+C2_PROVIDER=tianhe
+C2_MODEL=GLM-5.3-Flash
+C2_SUPPORTS_IMAGE=1
+C2_SUPPORTS_VIDEO=1
+
+C3_PROVIDER=starfire
+C3_MODEL=DeepSeek-V4.1-Flash
+C3_SUPPORTS_IMAGE=1
+C3_SUPPORTS_VIDEO=0
+
+# Session and fail-safe task boundary
+ROUTER_SESSION_STICKY=1
+ROUTER_TASK_CHANGE_MODE=safe_hybrid
+ROUTER_TASK_CHANGE_HARD_THRESHOLD=0.45
+ROUTER_TASK_CHANGE_SOFT_THRESHOLD=0.20
+ROUTER_TASK_CHANGE_MODEL=model_bundle/task_change/v1.joblib
+
+# Reasoning
+ROUTER_REASONING_ENABLED=1
+ROUTER_REASONING_PRIORITY=router
+C0_REASONING_MODES=auto,enabled,disabled
+C0_REASONING_EFFORTS=low,medium,xhigh
+C0_REASONING_DEFAULT_MODE=auto
+C1_REASONING_MODES=auto,enabled,disabled
+C1_REASONING_EFFORT_MIN=minimal
+C1_REASONING_EFFORT_MAX=max
+C1_REASONING_DEFAULT_MODE=auto
+C2_REASONING_MODES=auto,enabled,disabled
+C2_REASONING_EFFORT_MIN=minimal
+C2_REASONING_EFFORT_MAX=max
+C2_REASONING_DEFAULT_MODE=auto
+C3_REASONING_MODES=auto,enabled,disabled
+C3_REASONING_EFFORT_MIN=minimal
+C3_REASONING_EFFORT_MAX=max
+C3_REASONING_DEFAULT_MODE=auto
+
+# Streaming; high-reasoning models may need more than 30 seconds to first content.
+BACKEND_TIMEOUT=600
+BACKEND_CONNECT_TIMEOUT=30
+BACKEND_STREAM_START_TIMEOUT=120
+BACKEND_STREAM_FAST_START_TIMEOUT=8
+BACKEND_STREAM_IDLE_TIMEOUT=600
+
+# Cost / circuit / state
+ROUTER_COST_AWARE_ENABLED=1
+ROUTER_MIN_PROFILE_OBSERVATIONS=3
+ROUTER_LARGE_CONTEXT_R2_TOKENS=25000
+ROUTER_LARGE_CONTEXT_R3_TOKENS=80000
+ROUTER_CIRCUIT_BREAKER_ENABLED=1
+ROUTER_FAILURE_COOLDOWN_SECONDS=60
+ROUTER_RATE_LIMIT_COOLDOWN_SECONDS=15
+ROUTER_STATE_TTL_SECONDS=86400
+ROUTER_REPEAT_TOOL_CALL_THRESHOLD=3
+
+# Logs
+ROUTER_LOG_ENABLED=1
+ROUTER_LOG_LEVEL=INFO
+ROUTER_LOG_FILE=squilla_router.log
+ROUTER_ACCESS_LOG_FILE=squilla_router_access.log
+ROUTER_LOG_MAX_BYTES=20971520
+ROUTER_LOG_BACKUP_COUNT=5
+```
+
+删除旧配置：
+
+```env
+VISION_MODEL=...
+VISION_API_KEY=...
+VISION_BASE_URL=...
+```
+
+当前多模态路由直接使用各 Tier 的 `SUPPORTS_IMAGE / SUPPORTS_VIDEO`。
+
+任务边界模型必须随项目部署：
+
+```text
+model_bundle/task_change/v1.joblib
+model_bundle/task_change/v1.joblib.sha256
+```
+
+检查：
+
+```bash
+cd /root/work/projects/squilla_api_router/model_bundle/task_change
+sha256sum -c v1.joblib.sha256
+```
+
+启动后检查：
+
+```bash
+curl -s http://127.0.0.1:8021/health
+curl -s http://127.0.0.1:8021/router-status
+```
+
+必须确认：
+
+```json
+{
+  "ml_ready": true,
+  "log_level": "INFO",
+  "session_routing": {
+    "task_change_mode": "safe_hybrid",
+    "task_change_policy_ready": true,
+    "task_change_policy_error": ""
+  }
+}
+```
+
 ### Session/Task 粘性路由
 
 Router 默认在同一个任务内保持 provider、model、API 格式和 endpoint 不变，
@@ -229,6 +367,7 @@ usage 账本同时记录成功调用和失败尝试：HTTP 状态、错误类型
 
 ```env
 ROUTER_LOG_ENABLED=1
+ROUTER_LOG_LEVEL=INFO
 ROUTER_LOG_FILE=squilla_router.log
 ROUTER_ACCESS_LOG_FILE=squilla_router_access.log
 ROUTER_LOG_MAX_BYTES=20971520
@@ -635,6 +774,62 @@ Anthropic 格式响应：
 }
 ```
 
+## 生产排查：502、模型切换和 fallback
+
+`502` 是 Router 的聚合失败状态，不等于单一 timeout。详细原因查看
+`squilla_router.log`，不是只查看 access log。
+
+```bash
+cd /root/work/projects/squilla_api_router
+grep -E \
+'TASK_BOUNDARY|MODEL_SWITCH|ATTEMPT|STREAM|CIRCUIT|all backends failed|HTTP [45][0-9][0-9]|first content' \
+squilla_router.log | tail -n 300
+```
+
+临时开启详细日志：
+
+```env
+ROUTER_LOG_LEVEL=DEBUG
+```
+
+修改后重启服务。`GET /router-status` 会返回当前 `log_level`。
+
+重点判断：
+
+| 日志 | 含义 |
+|---|---|
+| `[STREAM] tier=... no first content within Ns` | 首内容等待超时 |
+| `[STREAM] tier=... HTTP 503` | 上游 MaaS 返回错误 |
+| `[CIRCUIT] skipping cooldown tiers=...` | 熔断期间跳过该 tier |
+| `[MODEL_SWITCH]` | 计划选中的 tier/model 改变 |
+| `[TASK_BOUNDARY] ... force_reclassify=True` | safe_hybrid 触发软重分类 |
+| `all backends failed` | 所有候选失败，最终返回 502 |
+
+高推理模型的 30 秒首内容等待可能过短。生产建议：
+
+```env
+BACKEND_STREAM_START_TIMEOUT=120
+BACKEND_STREAM_FAST_START_TIMEOUT=8
+BACKEND_STREAM_IDLE_TIMEOUT=600
+BACKEND_TIMEOUT=600
+```
+
+`BACKEND_STREAM_FAST_START_TIMEOUT` 仅用于 T0/T1；T2/T3 使用
+`BACKEND_STREAM_START_TIMEOUT`。
+
+如果日志表现为：
+
+```text
+intent=redo
+[ATTEMPT] 1/1 tier=R3
+[STREAM] tier=R3 no first content
+502
+```
+
+说明 Redo 的质量下限把所有 fallback 限制在 C3，C3 单后端故障会直接变成
+502。生产环境应保证 C3 后端稳定，或后续启用“传输故障允许跨 tier fallback，
+质量失败禁止降级”的分离策略。
+
 ## 管理端点
 
 | 端点 | 说明 |
@@ -699,6 +894,25 @@ uvicorn >= 0.30
 httpx >= 0.27
 python-dotenv >= 1.0
 ```
+
+## 生产版本一致性
+
+`model_bundle/task_change/v1.joblib` 与 `model_bundle/` 中的 V4 pickle/joblib
+资产必须由与生产环境兼容的 Python、scikit-learn 和 LightGBM 版本生成或加载。
+如果日志出现：
+
+```text
+InconsistentVersionWarning: Trying to unpickle estimator ...
+```
+
+不要忽略。应在生产目标环境重新训练任务边界模型：
+
+```bash
+python train_task_change_model.py
+python benchmarks/benchmark_task_change_hybrid.py --repeat 3
+```
+
+或固定生产依赖到模型训练时使用的版本，并重新校验 `.sha256`。
 
 ## 许可
 
