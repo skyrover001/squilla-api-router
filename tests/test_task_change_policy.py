@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from uuid import uuid4
 
@@ -67,7 +68,8 @@ def test_safe_heuristic_fallback_forces_ambiguous_reclassification() -> None:
     assert explicit.force_reclassify is False
 
 
-def test_soft_boundary_bypasses_session_stickiness(monkeypatch) -> None:
+def test_soft_boundary_bypasses_session_stickiness(monkeypatch, caplog) -> None:
+    caplog.set_level(logging.DEBUG, logger="squilla.router")
     store_path = Path(__file__).with_name(f".soft-boundary-{uuid4().hex}.db")
     store = router_app.RoutingStateStore(store_path)
     previous = store.put(
@@ -165,4 +167,8 @@ def test_soft_boundary_bypasses_session_stickiness(monkeypatch) -> None:
     assert plan.task_id == previous.task_id
     assert plan.task_goal == "补上测试"
     assert classify_calls == 1
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "[TASK_BOUNDARY]" in messages
+    assert "force_reclassify=True" in messages
+    assert "[MODEL_SWITCH]" in messages
     store_path.unlink(missing_ok=True)

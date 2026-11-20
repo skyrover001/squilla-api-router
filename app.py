@@ -97,6 +97,11 @@ app = FastAPI(title="Squilla API Router", version="0.1.0", docs_url=None)
 logger = logging.getLogger("squilla.router")
 
 
+def _configured_log_level() -> int:
+    raw = os.environ.get("ROUTER_LOG_LEVEL", "INFO").strip().upper()
+    return getattr(logging, raw, logging.INFO)
+
+
 def _configure_router_logging(
     *,
     force: bool = False,
@@ -151,7 +156,9 @@ def _configure_router_logging(
     )
     handler._squilla_router_file = True  # type: ignore[attr-defined]
     logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+    level = _configured_log_level()
+    handler.setLevel(level)
+    logger.setLevel(level)
     logger.propagate = False
     return handler
 
@@ -163,6 +170,7 @@ if os.environ.get("ROUTER_EXTERNAL_LOGGING") != "1":
 
 ROUTER_API_KEY = os.environ.get("ROUTER_API_KEY", "")
 ROUTER_TENANT_API_KEYS: dict[str, str] = {}
+ROUTER_LOG_LEVEL = os.environ.get("ROUTER_LOG_LEVEL", "INFO").strip().upper()
 # Upstream (backend) call timeout, in seconds.
 # Long reasoning generations can easily exceed two minutes, so default is generous.
 # For streaming, bound the time spent waiting for the first content event so a
@@ -871,7 +879,7 @@ _config_mtime: float | None = None
 def _reload_config() -> bool:
     """Re-read .env and rebuild the provider/tier tables.  Returns True."""
     global PROVIDERS, TIERS, ROUTE_CLASS_TO_TIER
-    global ROUTER_API_KEY, ROUTER_TENANT_API_KEYS
+    global ROUTER_API_KEY, ROUTER_TENANT_API_KEYS, ROUTER_LOG_LEVEL
     global BACKEND_TIMEOUT, BACKEND_CONNECT_TIMEOUT
     global BACKEND_STREAM_START_TIMEOUT, BACKEND_STREAM_FAST_START_TIMEOUT
     global BACKEND_STREAM_IDLE_TIMEOUT
@@ -893,6 +901,12 @@ def _reload_config() -> bool:
 
     ROUTER_API_KEY = os.environ.get("ROUTER_API_KEY", "")
     ROUTER_TENANT_API_KEYS = _load_tenant_api_keys()
+    ROUTER_LOG_LEVEL = os.environ.get("ROUTER_LOG_LEVEL", "INFO").strip().upper()
+    level = _configured_log_level()
+    logger.setLevel(level)
+    for handler in logger.handlers:
+        if getattr(handler, "_squilla_router_file", False):
+            handler.setLevel(level)
     BACKEND_TIMEOUT = float(os.environ.get("BACKEND_TIMEOUT", "300"))
     BACKEND_CONNECT_TIMEOUT = float(os.environ.get("BACKEND_CONNECT_TIMEOUT", "30"))
     BACKEND_STREAM_START_TIMEOUT = float(
@@ -2745,7 +2759,7 @@ def _prepare_session_route(
             )
         )
 
-    return SessionRoutePlan(
+    plan = SessionRoutePlan(
         identity=identity,
         previous=previous,
         intent=decision.intent,
@@ -2760,6 +2774,52 @@ def _prepare_session_route(
         force_reclassify=force_reclassify,
         task_goal=task_goal,
     )
+    selected_cfg = TIERS.get(selected_tier) or {}
+    selected_model = str(selected_cfg.get("model") or "")
+    selected_provider = str(selected_cfg.get("provider") or "")
+    boundary = route_info.get("task_boundary") or {}
+    changed_tier = bool(previous and previous.tier != selected_tier)
+    changed_model = bool(previous and previous.model != selected_model)
+    important_switch = (
+        changed_tier
+        or changed_model
+        or force_reclassify
+        or decision.intent in {"new_task", "task_changed", "redo"}
+    )
+    log_level = logging.INFO if important_switch else logging.DEBUG
+    logger.log(
+        log_level,
+        "[TASK_BOUNDARY] session=%s intent=%s reason=%s p_change=%s "
+        "force_reclassify=%s sticky=%s previous_tier=%s previous_model=%s "
+        "selected_tier=%s selected_model=%s selected_provider=%s "
+        "cost_policy=%s",
+        identity.session_id,
+        decision.intent,
+        decision.reason,
+        boundary.get("change_probability"),
+        force_reclassify,
+        plan.sticky,
+        previous.tier if previous else "",
+        previous.model if previous else "",
+        selected_tier,
+        selected_model,
+        selected_provider,
+        route_info.get("cost_policy", ""),
+    )
+    if changed_tier or changed_model:
+        logger.info(
+            "[MODEL_SWITCH] session=%s intent=%s reason=%s from=%s/%s to=%s/%s "
+            "force_reclassify=%s planned=true",
+            identity.session_id,
+            decision.intent,
+            decision.reason,
+            previous.tier if previous else "",
+            previous.model if previous else "",
+            selected_tier,
+            selected_model,
+            force_reclassify,
+        )
+    return plan
 
 
 def _record_session_route(
@@ -3572,6 +3632,7 @@ async def router_status():
         }
     return {
         "ml_ready": _core is not None,
+        "log_level": ROUTER_LOG_LEVEL,
         "reasoning_routing": {
             "enabled": ROUTER_REASONING_ENABLED,
             "priority": ROUTER_REASONING_PRIORITY,

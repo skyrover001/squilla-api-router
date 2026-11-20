@@ -53,6 +53,9 @@ def _uvicorn_log_config() -> dict:
     access_log.parent.mkdir(parents=True, exist_ok=True)
     max_bytes = max(1024, int(os.environ.get("ROUTER_LOG_MAX_BYTES", "20971520")))
     backup_count = max(1, int(os.environ.get("ROUTER_LOG_BACKUP_COUNT", "5")))
+    level_name = os.environ.get("ROUTER_LOG_LEVEL", "INFO").strip().upper()
+    if level_name not in {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}:
+        level_name = "INFO"
     return {
         "version": 1,
         "disable_existing_loggers": False,
@@ -96,28 +99,28 @@ def _uvicorn_log_config() -> dict:
         "loggers": {
             "uvicorn": {
                 "handlers": ["router_file"],
-                "level": "INFO",
+                "level": level_name,
                 "propagate": False,
             },
             "uvicorn.error": {
                 "handlers": ["router_file"],
-                "level": "INFO",
+                "level": level_name,
                 "propagate": False,
             },
             "uvicorn.access": {
                 "handlers": ["access_file"],
-                "level": "INFO",
+                "level": level_name,
                 "propagate": False,
             },
             "squilla.router": {
                 "handlers": ["router_file"],
-                "level": "INFO",
+                "level": level_name,
                 "propagate": False,
             },
         },
         "root": {
             "handlers": ["router_file"],
-            "level": "WARNING",
+            "level": "WARNING" if level_name != "DEBUG" else "INFO",
         },
     }
 
