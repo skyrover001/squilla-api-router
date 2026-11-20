@@ -1,0 +1,1040 @@
+{
+  "dataset": "E:\\桌面\\2026专利申请\\squilla_api_router\\benchmarks\\task_change_cases.jsonl",
+  "config": {
+    "bge_model_dir": "E:\\桌面\\2026专利申请\\squilla_api_router\\model_bundle\\bge_onnx",
+    "semantic_low_threshold": 0.5,
+    "semantic_high_threshold": 0.78,
+    "rule_similarity_threshold": 0.15
+  },
+  "summary": {
+    "current_rule": {
+      "cases": 53,
+      "accuracy": 0.792453,
+      "macro_f1": 0.63104,
+      "false_split_count": 8,
+      "false_split_rate": 0.275862,
+      "missed_change_count": 3,
+      "missed_change_rate": 0.125,
+      "confusion": {
+        "continue": {
+          "continue": 15,
+          "task_changed": 8
+        },
+        "redo": {
+          "redo": 6
+        },
+        "task_changed": {
+          "continue": 3,
+          "task_changed": 21
+        }
+      },
+      "semantic_similarity": {
+        "same_task_median": 0.490007,
+        "changed_task_median": 0.46623,
+        "same_task_anchor_median": 0.560367,
+        "changed_task_anchor_median": 0.586178
+      },
+      "by_category": {
+        "explicit_continue": {
+          "cases": 6,
+          "accuracy": 1.0
+        },
+        "explicit_new_task": {
+          "cases": 4,
+          "accuracy": 1.0
+        },
+        "explicit_redo": {
+          "cases": 4,
+          "accuracy": 1.0
+        },
+        "implicit_continue": {
+          "cases": 8,
+          "accuracy": 0.0
+        },
+        "repeated_prompt": {
+          "cases": 2,
+          "accuracy": 1.0
+        },
+        "session_contract_change": {
+          "cases": 4,
+          "accuracy": 0.25
+        },
+        "task_changed_cross_domain": {
+          "cases": 8,
+          "accuracy": 1.0
+        },
+        "task_changed_shared_domain": {
+          "cases": 8,
+          "accuracy": 1.0
+        },
+        "terse_continue": {
+          "cases": 5,
+          "accuracy": 1.0
+        },
+        "tool_continuation": {
+          "cases": 4,
+          "accuracy": 1.0
+        }
+      }
+    },
+    "semantic_v1": {
+      "cases": 53,
+      "accuracy": 0.679245,
+      "macro_f1": 0.568821,
+      "false_split_count": 9,
+      "false_split_rate": 0.310345,
+      "missed_change_count": 8,
+      "missed_change_rate": 0.333333,
+      "confusion": {
+        "continue": {
+          "continue": 14,
+          "task_changed": 9
+        },
+        "redo": {
+          "redo": 6
+        },
+        "task_changed": {
+          "continue": 8,
+          "task_changed": 16
+        }
+      },
+      "semantic_similarity": {
+        "same_task_median": 0.490007,
+        "changed_task_median": 0.46623,
+        "same_task_anchor_median": 0.560367,
+        "changed_task_anchor_median": 0.586178
+      },
+      "by_category": {
+        "explicit_continue": {
+          "cases": 6,
+          "accuracy": 1.0
+        },
+        "explicit_new_task": {
+          "cases": 4,
+          "accuracy": 1.0
+        },
+        "explicit_redo": {
+          "cases": 4,
+          "accuracy": 1.0
+        },
+        "implicit_continue": {
+          "cases": 8,
+          "accuracy": 0.25
+        },
+        "repeated_prompt": {
+          "cases": 2,
+          "accuracy": 1.0
+        },
+        "session_contract_change": {
+          "cases": 4,
+          "accuracy": 1.0
+        },
+        "task_changed_cross_domain": {
+          "cases": 8,
+          "accuracy": 0.75
+        },
+        "task_changed_shared_domain": {
+          "cases": 8,
+          "accuracy": 0.25
+        },
+        "terse_continue": {
+          "cases": 5,
+          "accuracy": 0.4
+        },
+        "tool_continuation": {
+          "cases": 4,
+          "accuracy": 1.0
+        }
+      }
+    },
+    "elapsed_s": 0.417119
+  },
+  "rows": [
+    {
+      "id": "explicit-continue-01",
+      "category": "explicit_continue",
+      "anchor": "实现并完善 JSON 字段读取脚本",
+      "latest": "继续增加异常处理和单元测试。",
+      "expected": "continue",
+      "current_rule": "continue",
+      "current_rule_reason": "continuation_phrase",
+      "semantic_v1": "continue",
+      "semantic_reason": "continuation_phrase",
+      "goal_similarity": 0.446185,
+      "anchor_similarity": 0.457066,
+      "similarity": 0.446185,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "explicit-continue-02",
+      "category": "explicit_continue",
+      "anchor": "解释 JWT 结构与风险",
+      "latest": "继续，补充算法混淆攻击的例子。",
+      "expected": "continue",
+      "current_rule": "continue",
+      "current_rule_reason": "continuation_phrase",
+      "semantic_v1": "continue",
+      "semantic_reason": "continuation_phrase",
+      "goal_similarity": 0.491262,
+      "anchor_similarity": 0.52638,
+      "similarity": 0.491262,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "explicit-continue-03",
+      "category": "explicit_continue",
+      "anchor": "设计订单服务重试策略",
+      "latest": "接着上面的方案，比较指数退避和固定间隔。",
+      "expected": "continue",
+      "current_rule": "continue",
+      "current_rule_reason": "continuation_phrase",
+      "semantic_v1": "continue",
+      "semantic_reason": "continuation_phrase",
+      "goal_similarity": 0.418969,
+      "anchor_similarity": 0.537569,
+      "similarity": 0.418969,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "explicit-continue-04",
+      "category": "explicit_continue",
+      "anchor": "Review the current pull request for race conditions",
+      "latest": "Continue and focus on the cancellation path.",
+      "expected": "continue",
+      "current_rule": "continue",
+      "current_rule_reason": "continuation_phrase",
+      "semantic_v1": "continue",
+      "semantic_reason": "continuation_phrase",
+      "goal_similarity": 0.676904,
+      "anchor_similarity": 0.718092,
+      "similarity": 0.676904,
+      "goal_lexical_similarity": 0.071429
+    },
+    {
+      "id": "explicit-continue-05",
+      "category": "explicit_continue",
+      "anchor": "优化当前 SQL 查询",
+      "latest": "继续，基于刚才的索引方案给出执行计划。",
+      "expected": "continue",
+      "current_rule": "continue",
+      "current_rule_reason": "continuation_phrase",
+      "semantic_v1": "continue",
+      "semantic_reason": "continuation_phrase",
+      "goal_similarity": 0.423851,
+      "anchor_similarity": 0.575938,
+      "similarity": 0.423851,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "explicit-continue-06",
+      "category": "explicit_continue",
+      "anchor": "将产品说明翻译成英文",
+      "latest": "继续翻译，保持统一术语。",
+      "expected": "continue",
+      "current_rule": "continue",
+      "current_rule_reason": "continuation_phrase",
+      "semantic_v1": "continue",
+      "semantic_reason": "continuation_phrase",
+      "goal_similarity": 0.555565,
+      "anchor_similarity": 0.628612,
+      "similarity": 0.555565,
+      "goal_lexical_similarity": 0.085714
+    },
+    {
+      "id": "implicit-continue-01",
+      "category": "implicit_continue",
+      "anchor": "实现 JSON 字段读取脚本",
+      "latest": "补上文件不存在和字段缺失时的错误提示。",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.487723,
+      "anchor_similarity": 0.584913,
+      "similarity": 0.487723,
+      "goal_lexical_similarity": 0.0625
+    },
+    {
+      "id": "implicit-continue-02",
+      "category": "implicit_continue",
+      "anchor": "定位登录接口偶发 502 的原因",
+      "latest": "检查上游连接池耗尽后上游超时重试造成的放大效应。",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.490007,
+      "anchor_similarity": 0.49226,
+      "similarity": 0.490007,
+      "goal_lexical_similarity": 0.032258
+    },
+    {
+      "id": "implicit-continue-03",
+      "category": "implicit_continue",
+      "anchor": "完善 add 函数的 pytest 测试",
+      "latest": "加入 float、负数和小数的情况。",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.493064,
+      "anchor_similarity": 0.588043,
+      "similarity": 0.493064,
+      "goal_lexical_similarity": 0.096774
+    },
+    {
+      "id": "implicit-continue-04",
+      "category": "implicit_continue",
+      "anchor": "Compare PostgreSQL and MySQL for the current workload",
+      "latest": "Include replication lag and failover behavior in the comparison.",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "goal_similarity": 0.571566,
+      "anchor_similarity": 0.6852,
+      "similarity": 0.571566,
+      "goal_lexical_similarity": 0.133333
+    },
+    {
+      "id": "implicit-continue-05",
+      "category": "implicit_continue",
+      "anchor": "优化移动端首页加载性能",
+      "latest": "再测一下首屏 LCP 和图片懒加载的收益。",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.491043,
+      "anchor_similarity": 0.58201,
+      "similarity": 0.491043,
+      "goal_lexical_similarity": 0.085106
+    },
+    {
+      "id": "implicit-continue-06",
+      "category": "implicit_continue",
+      "anchor": "将中文技术说明翻译成英文",
+      "latest": "统一 API、deployment 和 cluster 这几个词的译法。",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.466166,
+      "anchor_similarity": 0.500928,
+      "similarity": 0.466166,
+      "goal_lexical_similarity": 0.023256
+    },
+    {
+      "id": "implicit-continue-07",
+      "category": "implicit_continue",
+      "anchor": "完善订单服务重试设计",
+      "latest": "加上幂等键、最大重试次数和熔断条件。",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "goal_similarity": 0.525254,
+      "anchor_similarity": 0.558549,
+      "similarity": 0.525254,
+      "goal_lexical_similarity": 0.06383
+    },
+    {
+      "id": "implicit-continue-08",
+      "category": "implicit_continue",
+      "anchor": "重构 parser.py 参数解析逻辑",
+      "latest": "把长函数拆开，但不要改变命令行参数。",
+      "expected": "continue",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.458756,
+      "anchor_similarity": 0.542993,
+      "similarity": 0.458756,
+      "goal_lexical_similarity": 0.068182
+    },
+    {
+      "id": "explicit-redo-01",
+      "category": "explicit_redo",
+      "anchor": "解释 CAP 定理",
+      "latest": "重新生成，刚才的例子不够准确。",
+      "expected": "redo",
+      "current_rule": "redo",
+      "current_rule_reason": "explicit_redo_phrase",
+      "semantic_v1": "redo",
+      "semantic_reason": "explicit_redo_phrase",
+      "goal_similarity": 0.388838,
+      "anchor_similarity": 0.487478,
+      "similarity": 0.388838,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "explicit-redo-02",
+      "category": "explicit_redo",
+      "anchor": "实现 Go worker pool",
+      "latest": "再试一次，用更简洁的实现。",
+      "expected": "redo",
+      "current_rule": "redo",
+      "current_rule_reason": "explicit_redo_phrase",
+      "semantic_v1": "redo",
+      "semantic_reason": "explicit_redo_phrase",
+      "goal_similarity": 0.514256,
+      "anchor_similarity": 0.540114,
+      "similarity": 0.514256,
+      "goal_lexical_similarity": 0.125
+    },
+    {
+      "id": "explicit-redo-03",
+      "category": "explicit_redo",
+      "anchor": "Generate a deployment checklist",
+      "latest": "Regenerate it with the rollback steps first.",
+      "expected": "redo",
+      "current_rule": "redo",
+      "current_rule_reason": "explicit_redo_phrase",
+      "semantic_v1": "redo",
+      "semantic_reason": "explicit_redo_phrase",
+      "goal_similarity": 0.552051,
+      "anchor_similarity": 0.617988,
+      "similarity": 0.552051,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "explicit-redo-04",
+      "category": "explicit_redo",
+      "anchor": "翻译说明为日文",
+      "latest": "重做，语气再正式一些。",
+      "expected": "redo",
+      "current_rule": "redo",
+      "current_rule_reason": "explicit_redo_phrase",
+      "semantic_v1": "redo",
+      "semantic_reason": "explicit_redo_phrase",
+      "goal_similarity": 0.488932,
+      "anchor_similarity": 0.54859,
+      "similarity": 0.488932,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "explicit-new-01",
+      "category": "explicit_new_task",
+      "anchor": "实现 JSON 读取脚本",
+      "latest": "换个任务，帮我分析 Nginx 访问日志。",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "explicit_new_task_phrase",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "explicit_new_task_phrase",
+      "goal_similarity": 0.46433,
+      "anchor_similarity": 0.617743,
+      "similarity": 0.46433,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "explicit-new-02",
+      "category": "explicit_new_task",
+      "anchor": "解释 JWT",
+      "latest": "另外做一个任务：为登录接口写压测方案。",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "explicit_new_task_phrase",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "explicit_new_task_phrase",
+      "goal_similarity": 0.375962,
+      "anchor_similarity": 0.471605,
+      "similarity": 0.375962,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "explicit-new-03",
+      "category": "explicit_new_task",
+      "anchor": "Review current diff",
+      "latest": "New task: draft the release notes for this version.",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "explicit_new_task_phrase",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "explicit_new_task_phrase",
+      "goal_similarity": 0.514109,
+      "anchor_similarity": 0.618811,
+      "similarity": 0.514109,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "explicit-new-04",
+      "category": "explicit_new_task",
+      "anchor": "优化 SQL 查询",
+      "latest": "现在做另一个任务，比较两种缓存方案。",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "explicit_new_task_phrase",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "explicit_new_task_phrase",
+      "goal_similarity": 0.394163,
+      "anchor_similarity": 0.587105,
+      "similarity": 0.394163,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "tool-continue-01",
+      "category": "tool_continuation",
+      "anchor": "修复注册接口空指针异常",
+      "latest": "{\"exit_code\":0,\"stdout\":\"tests passed\"}",
+      "expected": "continue",
+      "current_rule": "continue",
+      "current_rule_reason": "tool_result_continuation",
+      "semantic_v1": "continue",
+      "semantic_reason": "tool_result_continuation",
+      "goal_similarity": 0.522537,
+      "anchor_similarity": 0.568465,
+      "similarity": 0.522537,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "tool-continue-02",
+      "category": "tool_continuation",
+      "anchor": "定位生产日志 500 错误",
+      "latest": "Traceback: connection reset by peer",
+      "expected": "continue",
+      "current_rule": "continue",
+      "current_rule_reason": "tool_result_continuation",
+      "semantic_v1": "continue",
+      "semantic_reason": "tool_result_continuation",
+      "goal_similarity": 0.426154,
+      "anchor_similarity": 0.447786,
+      "similarity": 0.426154,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "tool-continue-03",
+      "category": "tool_continuation",
+      "anchor": "Refactor parser and run tests",
+      "latest": "pytest completed with 18 passed.",
+      "expected": "continue",
+      "current_rule": "continue",
+      "current_rule_reason": "tool_result_continuation",
+      "semantic_v1": "continue",
+      "semantic_reason": "tool_result_continuation",
+      "goal_similarity": 0.658742,
+      "anchor_similarity": 0.730166,
+      "similarity": 0.658742,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "tool-continue-04",
+      "category": "tool_continuation",
+      "anchor": "检查依赖漏洞",
+      "latest": "npm audit found 2 high severity issues.",
+      "expected": "continue",
+      "current_rule": "continue",
+      "current_rule_reason": "tool_result_continuation",
+      "semantic_v1": "continue",
+      "semantic_reason": "tool_result_continuation",
+      "goal_similarity": 0.472744,
+      "anchor_similarity": 0.488794,
+      "similarity": 0.472744,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "repeated-01",
+      "category": "repeated_prompt",
+      "anchor": "实现快速排序",
+      "latest": "写一个快速排序实现。",
+      "expected": "redo",
+      "current_rule": "redo",
+      "current_rule_reason": "same_user_message_repeated",
+      "semantic_v1": "redo",
+      "semantic_reason": "same_user_message_repeated",
+      "goal_similarity": 0.824055,
+      "anchor_similarity": 1.0,
+      "similarity": 0.824055,
+      "goal_lexical_similarity": 0.555556
+    },
+    {
+      "id": "repeated-02",
+      "category": "repeated_prompt",
+      "anchor": "Summarize incident timeline",
+      "latest": "Summarize the incident timeline.",
+      "expected": "redo",
+      "current_rule": "redo",
+      "current_rule_reason": "same_user_message_repeated",
+      "semantic_v1": "redo",
+      "semantic_reason": "same_user_message_repeated",
+      "goal_similarity": 0.915495,
+      "anchor_similarity": 1.0,
+      "similarity": 0.915495,
+      "goal_lexical_similarity": 0.75
+    },
+    {
+      "id": "shared-change-01",
+      "category": "task_changed_shared_domain",
+      "anchor": "定位并修复登录接口 502",
+      "latest": "给登录页增加短信验证码和频率限制。",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "goal_similarity": 0.511513,
+      "anchor_similarity": 0.562251,
+      "similarity": 0.511513,
+      "goal_lexical_similarity": 0.065217
+    },
+    {
+      "id": "shared-change-02",
+      "category": "task_changed_shared_domain",
+      "anchor": "优化订单查询索引",
+      "latest": "设计订单退款接口的数据库表结构。",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "goal_similarity": 0.575966,
+      "anchor_similarity": 0.661539,
+      "similarity": 0.575966,
+      "goal_lexical_similarity": 0.073171
+    },
+    {
+      "id": "shared-change-03",
+      "category": "task_changed_shared_domain",
+      "anchor": "修复 parser 异常处理",
+      "latest": "写一个 Python CLI 来批量转换 CSV 文件。",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.451341,
+      "anchor_similarity": 0.542296,
+      "similarity": 0.451341,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "shared-change-04",
+      "category": "task_changed_shared_domain",
+      "anchor": "Review authentication middleware security",
+      "latest": "Add password reset endpoints and email verification.",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "goal_similarity": 0.590186,
+      "anchor_similarity": 0.700273,
+      "similarity": 0.590186,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "shared-change-05",
+      "category": "task_changed_shared_domain",
+      "anchor": "分析登录失败日志",
+      "latest": "实现登录成功率的监控看板和告警规则。",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "goal_similarity": 0.509863,
+      "anchor_similarity": 0.571484,
+      "similarity": 0.509863,
+      "goal_lexical_similarity": 0.066667
+    },
+    {
+      "id": "shared-change-06",
+      "category": "task_changed_shared_domain",
+      "anchor": "优化 React 首页性能",
+      "latest": "为 React 组件库设计一套主题变量。",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "goal_similarity": 0.524462,
+      "anchor_similarity": 0.695913,
+      "similarity": 0.524462,
+      "goal_lexical_similarity": 0.028571
+    },
+    {
+      "id": "shared-change-07",
+      "category": "task_changed_shared_domain",
+      "anchor": "解释 readiness probe",
+      "latest": "部署一套 Kubernetes 蓝绿发布流水线。",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.32881,
+      "anchor_similarity": 0.423658,
+      "similarity": 0.32881,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "shared-change-08",
+      "category": "task_changed_shared_domain",
+      "anchor": "Tune PostgreSQL order indexes",
+      "latest": "Write a PostgreSQL migration for tenant-level row security.",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "goal_similarity": 0.619116,
+      "anchor_similarity": 0.69597,
+      "similarity": 0.619116,
+      "goal_lexical_similarity": 0.083333
+    },
+    {
+      "id": "cross-change-01",
+      "category": "task_changed_cross_domain",
+      "anchor": "实现 JSON 读取脚本",
+      "latest": "帮我比较三种家用 NAS 备份方案。",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.450822,
+      "anchor_similarity": 0.499483,
+      "similarity": 0.450822,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "cross-change-02",
+      "category": "task_changed_cross_domain",
+      "anchor": "解释 JWT 风险",
+      "latest": "把这份产品介绍翻译成英文。",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.360642,
+      "anchor_similarity": 0.481534,
+      "similarity": 0.360642,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "cross-change-03",
+      "category": "task_changed_cross_domain",
+      "anchor": "优化首页加载性能",
+      "latest": "下周去上海出差，帮我安排三天行程。",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.335201,
+      "anchor_similarity": 0.40126,
+      "similarity": 0.335201,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "cross-change-04",
+      "category": "task_changed_cross_domain",
+      "anchor": "Review current pull request",
+      "latest": "Draft a customer-facing outage notification.",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "goal_similarity": 0.605048,
+      "anchor_similarity": 0.647517,
+      "similarity": 0.605048,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "cross-change-05",
+      "category": "task_changed_cross_domain",
+      "anchor": "修复订单服务超时",
+      "latest": "解释一下什么是向量数据库。",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.336173,
+      "anchor_similarity": 0.437686,
+      "similarity": 0.336173,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "cross-change-06",
+      "category": "task_changed_cross_domain",
+      "anchor": "生成 SQL 建表语句",
+      "latest": "写一首关于秋天的七言诗。",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.406749,
+      "anchor_similarity": 0.456405,
+      "similarity": 0.406749,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "cross-change-07",
+      "category": "task_changed_cross_domain",
+      "anchor": "Compare Redis and Memcached",
+      "latest": "Plan a two-week vacation in Japan.",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "goal_similarity": 0.600055,
+      "anchor_similarity": 0.675069,
+      "similarity": 0.600055,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "cross-change-08",
+      "category": "task_changed_cross_domain",
+      "anchor": "排查 CI 构建失败",
+      "latest": "把会议录音整理成行动项。",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "task_anchor_similarity",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.452101,
+      "anchor_similarity": 0.512412,
+      "similarity": 0.452101,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "terse-continue-01",
+      "category": "terse_continue",
+      "anchor": "修复登录接口 502",
+      "latest": "继续。",
+      "expected": "continue",
+      "current_rule": "continue",
+      "current_rule_reason": "continuation_phrase",
+      "semantic_v1": "continue",
+      "semantic_reason": "continuation_phrase",
+      "goal_similarity": 0.385836,
+      "anchor_similarity": 0.489677,
+      "similarity": 0.385836,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "terse-continue-02",
+      "category": "terse_continue",
+      "anchor": "解释 Raft 选主",
+      "latest": "再详细一点。",
+      "expected": "continue",
+      "current_rule": "continue",
+      "current_rule_reason": "task_anchor_match",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.413265,
+      "anchor_similarity": 0.600403,
+      "similarity": 0.413265,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "terse-continue-03",
+      "category": "terse_continue",
+      "anchor": "Review SQL migration",
+      "latest": "Go on.",
+      "expected": "continue",
+      "current_rule": "continue",
+      "current_rule_reason": "task_anchor_match",
+      "semantic_v1": "continue",
+      "semantic_reason": "semantic_mid_conservative",
+      "goal_similarity": 0.615121,
+      "anchor_similarity": 0.752001,
+      "similarity": 0.615121,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "terse-continue-04",
+      "category": "terse_continue",
+      "anchor": "优化首页图片加载",
+      "latest": "按刚才第二个方案改。",
+      "expected": "continue",
+      "current_rule": "continue",
+      "current_rule_reason": "task_anchor_match",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.412171,
+      "anchor_similarity": 0.511111,
+      "similarity": 0.412171,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "terse-continue-05",
+      "category": "terse_continue",
+      "anchor": "实现 CSV 转 JSON 脚本",
+      "latest": "补上测试。",
+      "expected": "continue",
+      "current_rule": "continue",
+      "current_rule_reason": "task_anchor_match",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "semantic_low_similarity",
+      "goal_similarity": 0.44295,
+      "anchor_similarity": 0.560367,
+      "similarity": 0.44295,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "system-change-01",
+      "category": "session_contract_change",
+      "anchor": "修复解析器",
+      "latest": "这里改用新的工具集继续处理。",
+      "expected": "task_changed",
+      "current_rule": "continue",
+      "current_rule_reason": "continuation_phrase",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "tool_schema_changed",
+      "goal_similarity": 0.481375,
+      "anchor_similarity": 0.652162,
+      "similarity": 0.481375,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "system-change-02",
+      "category": "session_contract_change",
+      "anchor": "Review API contract",
+      "latest": "Now operate under the new coding policy.",
+      "expected": "task_changed",
+      "current_rule": "task_changed",
+      "current_rule_reason": "system_prompt_changed",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "system_prompt_changed",
+      "goal_similarity": 0.652256,
+      "anchor_similarity": 0.7408,
+      "similarity": 0.652256,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "system-change-03",
+      "category": "session_contract_change",
+      "anchor": "分析日志",
+      "latest": "换成只读工具后继续排查。",
+      "expected": "task_changed",
+      "current_rule": "continue",
+      "current_rule_reason": "continuation_phrase",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "tool_schema_changed",
+      "goal_similarity": 0.461969,
+      "anchor_similarity": 0.585252,
+      "similarity": 0.461969,
+      "goal_lexical_similarity": 0.0
+    },
+    {
+      "id": "system-change-04",
+      "category": "session_contract_change",
+      "anchor": "实现缓存层",
+      "latest": "在新的代码代理配置下继续。",
+      "expected": "task_changed",
+      "current_rule": "continue",
+      "current_rule_reason": "continuation_phrase",
+      "semantic_v1": "task_changed",
+      "semantic_reason": "system_prompt_changed",
+      "goal_similarity": 0.468129,
+      "anchor_similarity": 0.640724,
+      "similarity": 0.468129,
+      "goal_lexical_similarity": 0.0
+    }
+  ],
+  "repeat": {
+    "runs": 3,
+    "deterministic": true,
+    "decision_sha256": "51742bfaca19df3b7665ebbcf47fa5000df8917eca9e511a1b2c8efcd5a5c184"
+  },
+  "threshold_sweep": {
+    "note": "In-sample diagnostic only; do not use the winner as a production threshold.",
+    "evaluated_combinations": 261,
+    "top": [
+      {
+        "low_threshold": 0.375,
+        "high_threshold": 0.55,
+        "accuracy": 0.811321,
+        "macro_f1": 0.639568,
+        "false_split_rate": 0.0,
+        "missed_change_rate": 0.416667
+      },
+      {
+        "low_threshold": 0.375,
+        "high_threshold": 0.575,
+        "accuracy": 0.811321,
+        "macro_f1": 0.639568,
+        "false_split_rate": 0.0,
+        "missed_change_rate": 0.416667
+      },
+      {
+        "low_threshold": 0.375,
+        "high_threshold": 0.6,
+        "accuracy": 0.811321,
+        "macro_f1": 0.639568,
+        "false_split_rate": 0.0,
+        "missed_change_rate": 0.416667
+      },
+      {
+        "low_threshold": 0.375,
+        "high_threshold": 0.625,
+        "accuracy": 0.811321,
+        "macro_f1": 0.639568,
+        "false_split_rate": 0.0,
+        "missed_change_rate": 0.416667
+      },
+      {
+        "low_threshold": 0.375,
+        "high_threshold": 0.65,
+        "accuracy": 0.811321,
+        "macro_f1": 0.639568,
+        "false_split_rate": 0.0,
+        "missed_change_rate": 0.416667
+      },
+      {
+        "low_threshold": 0.375,
+        "high_threshold": 0.675,
+        "accuracy": 0.811321,
+        "macro_f1": 0.639568,
+        "false_split_rate": 0.0,
+        "missed_change_rate": 0.416667
+      },
+      {
+        "low_threshold": 0.375,
+        "high_threshold": 0.7,
+        "accuracy": 0.811321,
+        "macro_f1": 0.639568,
+        "false_split_rate": 0.0,
+        "missed_change_rate": 0.416667
+      },
+      {
+        "low_threshold": 0.375,
+        "high_threshold": 0.725,
+        "accuracy": 0.811321,
+        "macro_f1": 0.639568,
+        "false_split_rate": 0.0,
+        "missed_change_rate": 0.416667
+      },
+      {
+        "low_threshold": 0.375,
+        "high_threshold": 0.75,
+        "accuracy": 0.811321,
+        "macro_f1": 0.639568,
+        "false_split_rate": 0.0,
+        "missed_change_rate": 0.416667
+      },
+      {
+        "low_threshold": 0.375,
+        "high_threshold": 0.775,
+        "accuracy": 0.811321,
+        "macro_f1": 0.639568,
+        "false_split_rate": 0.0,
+        "missed_change_rate": 0.416667
+      }
+    ]
+  }
+}

@@ -1,0 +1,513 @@
+{
+  "policy_reference": {
+    "opensquilla": "Continue retains tier; Redo advances one tier",
+    "stateless": "every turn treated as a new task"
+  },
+  "sticky": {
+    "session": "bench-sticky-986015a0",
+    "rows": [
+      {
+        "status": 200,
+        "intent": "new_task",
+        "reason": "no_active_task",
+        "sticky": "0",
+        "task_id": "7e6da57cdcb5456ebcd632418fc62dd0",
+        "route_header": "R0",
+        "model": "Qwen3.8-27B",
+        "tier": "c0",
+        "usage": {
+          "completion_tokens": 54,
+          "prompt_tokens": 47,
+          "total_tokens": 101
+        },
+        "cost_units": 2630,
+        "latency_s": 2.46,
+        "content_chars": 34,
+        "turn": "new_translate"
+      },
+      {
+        "status": 200,
+        "intent": "continue",
+        "reason": "continuation_phrase",
+        "sticky": "1",
+        "task_id": "7e6da57cdcb5456ebcd632418fc62dd0",
+        "route_header": "R0",
+        "model": "Qwen3.8-27B",
+        "tier": "c0",
+        "usage": {
+          "completion_tokens": 128,
+          "prompt_tokens": 85,
+          "total_tokens": 213
+        },
+        "cost_units": 5970,
+        "latency_s": 3.475,
+        "content_chars": 0,
+        "turn": "continue_translate"
+      },
+      {
+        "status": 200,
+        "intent": "continue",
+        "reason": "continuation_phrase",
+        "sticky": "1",
+        "task_id": "7e6da57cdcb5456ebcd632418fc62dd0",
+        "route_header": "R0",
+        "model": "Qwen3.8-27B",
+        "tier": "c0",
+        "usage": {
+          "completion_tokens": 128,
+          "prompt_tokens": 104,
+          "total_tokens": 232
+        },
+        "cost_units": 6160,
+        "latency_s": 4.181,
+        "content_chars": 11,
+        "turn": "continue_short"
+      },
+      {
+        "status": 200,
+        "intent": "task_changed",
+        "reason": "explicit_new_task_phrase",
+        "sticky": "0",
+        "task_id": "5541667de04e4964b7f2fa9789a4a5eb",
+        "route_header": "R0",
+        "model": "Qwen3.8-27B",
+        "tier": "c0",
+        "usage": {
+          "completion_tokens": 128,
+          "prompt_tokens": 136,
+          "total_tokens": 264
+        },
+        "cost_units": 6480,
+        "latency_s": 4.353,
+        "content_chars": 169,
+        "turn": "new_palindrome"
+      },
+      {
+        "status": 200,
+        "intent": "continue",
+        "reason": "continuation_phrase",
+        "sticky": "1",
+        "task_id": "5541667de04e4964b7f2fa9789a4a5eb",
+        "route_header": "R0",
+        "model": "Qwen3.8-27B",
+        "tier": "c0",
+        "usage": {
+          "completion_tokens": 68,
+          "prompt_tokens": 211,
+          "total_tokens": 279
+        },
+        "cost_units": 4830,
+        "latency_s": 3.533,
+        "content_chars": 94,
+        "turn": "continue_tests"
+      },
+      {
+        "status": 200,
+        "intent": "redo",
+        "reason": "explicit_redo_phrase",
+        "sticky": "0",
+        "task_id": "5541667de04e4964b7f2fa9789a4a5eb",
+        "route_header": "c2",
+        "model": "GLM-5.3-Flash",
+        "tier": "c2",
+        "usage": {
+          "completion_tokens": 128,
+          "completion_tokens_details": {
+            "reasoning_tokens": 128
+          },
+          "prompt_tokens": 181,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "created_cache_tokens": 0
+          },
+          "total_tokens": 309
+        },
+        "cost_units": 69300,
+        "latency_s": 5.332,
+        "content_chars": 0,
+        "turn": "redo_tests"
+      },
+      {
+        "status": 200,
+        "intent": "task_changed",
+        "reason": "explicit_new_task_phrase",
+        "sticky": "0",
+        "task_id": "176f7f28b8b64e0eabcb2ff04c491583",
+        "route_header": "c0",
+        "model": "Qwen3.8-27B",
+        "tier": "c0",
+        "usage": {
+          "completion_tokens": 128,
+          "prompt_tokens": 247,
+          "total_tokens": 375
+        },
+        "cost_units": 7590,
+        "latency_s": 5.992,
+        "content_chars": 0,
+        "turn": "new_design"
+      },
+      {
+        "status": 200,
+        "intent": "continue",
+        "reason": "continuation_phrase",
+        "sticky": "1",
+        "task_id": "176f7f28b8b64e0eabcb2ff04c491583",
+        "route_header": "R0",
+        "model": "Qwen3.8-27B",
+        "tier": "c0",
+        "usage": {
+          "completion_tokens": 128,
+          "prompt_tokens": 268,
+          "total_tokens": 396
+        },
+        "cost_units": 7800,
+        "latency_s": 4.308,
+        "content_chars": 0,
+        "turn": "continue_recovery"
+      }
+    ],
+    "switches": 2,
+    "models": [
+      "GLM-5.3-Flash",
+      "Qwen3.8-27B"
+    ],
+    "input_tokens": 1279,
+    "cached_tokens": 0,
+    "output_tokens": 890,
+    "reasoning_tokens": 128,
+    "cost_units": 110760,
+    "latency_s": 33.634
+  },
+  "stateless": {
+    "session": "bench-stateless-4342787b",
+    "rows": [
+      {
+        "status": 200,
+        "intent": "new_task",
+        "reason": "no_active_task",
+        "sticky": "0",
+        "task_id": "5c96981558ee49cdb0c73194bb224df6",
+        "route_header": "R0",
+        "model": "Qwen3.8-27B",
+        "tier": "c0",
+        "usage": {
+          "completion_tokens": 34,
+          "prompt_tokens": 47,
+          "total_tokens": 81
+        },
+        "cost_units": 1830,
+        "latency_s": 3.155,
+        "content_chars": 32,
+        "turn": "new_translate"
+      },
+      {
+        "status": 200,
+        "intent": "new_task",
+        "reason": "no_active_task",
+        "sticky": "0",
+        "task_id": "6a5bcbb07dda4f488e77e62bdd36ee0f",
+        "route_header": "R0",
+        "model": "Qwen3.8-27B",
+        "tier": "c0",
+        "usage": {
+          "completion_tokens": 128,
+          "prompt_tokens": 83,
+          "total_tokens": 211
+        },
+        "cost_units": 5950,
+        "latency_s": 4.44,
+        "content_chars": 15,
+        "turn": "continue_translate"
+      },
+      {
+        "status": 200,
+        "intent": "new_task",
+        "reason": "no_active_task",
+        "sticky": "0",
+        "task_id": "5f8f9ee1a5884d50985646a2c2577838",
+        "route_header": "R0",
+        "model": "Qwen3.8-27B",
+        "tier": "c0",
+        "usage": {
+          "completion_tokens": 59,
+          "prompt_tokens": 109,
+          "total_tokens": 168
+        },
+        "cost_units": 3450,
+        "latency_s": 3.685,
+        "content_chars": 7,
+        "turn": "continue_short"
+      },
+      {
+        "status": 200,
+        "intent": "new_task",
+        "reason": "no_active_task",
+        "sticky": "0",
+        "task_id": "ae6b10742fb64ac2994bc97c0f283c68",
+        "route_header": "R0",
+        "model": "Qwen3.8-27B",
+        "tier": "c0",
+        "usage": {
+          "completion_tokens": 122,
+          "prompt_tokens": 139,
+          "total_tokens": 261
+        },
+        "cost_units": 6270,
+        "latency_s": 4.456,
+        "content_chars": 90,
+        "turn": "new_palindrome"
+      },
+      {
+        "status": 200,
+        "intent": "new_task",
+        "reason": "no_active_task",
+        "sticky": "0",
+        "task_id": "23ab4b629a06414d89b97fd68b5856a6",
+        "route_header": "c2",
+        "model": "GLM-5.3-Flash",
+        "tier": "c2",
+        "usage": {
+          "completion_tokens": 128,
+          "completion_tokens_details": {
+            "reasoning_tokens": 128
+          },
+          "prompt_tokens": 132,
+          "prompt_tokens_details": {
+            "cached_tokens": 0,
+            "created_cache_tokens": 0
+          },
+          "total_tokens": 260
+        },
+        "cost_units": 64400,
+        "latency_s": 13.918,
+        "content_chars": 0,
+        "turn": "continue_tests"
+      },
+      {
+        "status": 200,
+        "intent": "new_task",
+        "reason": "no_active_task",
+        "sticky": "0",
+        "task_id": "e060be85cd7b47079c7171461cc6aca3",
+        "route_header": "c0",
+        "model": "Qwen3.8-27B",
+        "tier": "c0",
+        "usage": {
+          "completion_tokens": 55,
+          "prompt_tokens": 209,
+          "total_tokens": 264
+        },
+        "cost_units": 4290,
+        "latency_s": 10.871,
+        "content_chars": 94,
+        "turn": "redo_tests"
+      },
+      {
+        "status": 200,
+        "intent": "new_task",
+        "reason": "no_active_task",
+        "sticky": "0",
+        "task_id": "40fc7e19ddce46af83a0e3c2919aeade",
+        "route_header": "c0",
+        "model": "Qwen3.8-27B",
+        "tier": "c0",
+        "usage": {
+          "completion_tokens": 128,
+          "prompt_tokens": 227,
+          "total_tokens": 355
+        },
+        "cost_units": 7390,
+        "latency_s": 6.637,
+        "content_chars": 0,
+        "turn": "new_design"
+      },
+      {
+        "status": 200,
+        "intent": "new_task",
+        "reason": "no_active_task",
+        "sticky": "0",
+        "task_id": "826b32cce8d94e4697d6888ecab921ff",
+        "route_header": "c0",
+        "model": "Qwen3.8-27B",
+        "tier": "c0",
+        "usage": {
+          "completion_tokens": 32,
+          "prompt_tokens": 248,
+          "total_tokens": 280
+        },
+        "cost_units": 3760,
+        "latency_s": 3.382,
+        "content_chars": 0,
+        "turn": "continue_recovery"
+      }
+    ],
+    "switches": 2,
+    "models": [
+      "GLM-5.3-Flash",
+      "Qwen3.8-27B"
+    ],
+    "input_tokens": 1194,
+    "cached_tokens": 0,
+    "output_tokens": 686,
+    "reasoning_tokens": 128,
+    "cost_units": 97340,
+    "latency_s": 50.544
+  },
+  "ledger": {
+    "session_id": "bench-sticky-986015a0",
+    "totals": {
+      "calls": 8,
+      "input_tokens": 1279,
+      "cached_tokens": 0,
+      "output_tokens": 890,
+      "reasoning_tokens": 128,
+      "latency_s": 25.125,
+      "cost_units": 110760
+    },
+    "calls": [
+      {
+        "call_id": 7,
+        "session_id": "bench-sticky-986015a0",
+        "task_id": "7e6da57cdcb5456ebcd632418fc62dd0",
+        "timestamp": 1794988076.772783,
+        "intent": "new_task",
+        "tier": "c0",
+        "route_class": "R0",
+        "model": "Qwen3.8-27B",
+        "provider": "tianhe",
+        "input_tokens": 47,
+        "cached_tokens": 0,
+        "output_tokens": 54,
+        "reasoning_tokens": 0,
+        "latency_s": 2.0160000000014406,
+        "cost_units": 2630
+      },
+      {
+        "call_id": 8,
+        "session_id": "bench-sticky-986015a0",
+        "task_id": "7e6da57cdcb5456ebcd632418fc62dd0",
+        "timestamp": 1794988080.2445588,
+        "intent": "continue",
+        "tier": "c0",
+        "route_class": "R0",
+        "model": "Qwen3.8-27B",
+        "provider": "tianhe",
+        "input_tokens": 85,
+        "cached_tokens": 0,
+        "output_tokens": 128,
+        "reasoning_tokens": 0,
+        "latency_s": 3.063000000000102,
+        "cost_units": 5970
+      },
+      {
+        "call_id": 9,
+        "session_id": "bench-sticky-986015a0",
+        "task_id": "7e6da57cdcb5456ebcd632418fc62dd0",
+        "timestamp": 1794988084.4232168,
+        "intent": "continue",
+        "tier": "c0",
+        "route_class": "R0",
+        "model": "Qwen3.8-27B",
+        "provider": "tianhe",
+        "input_tokens": 104,
+        "cached_tokens": 0,
+        "output_tokens": 128,
+        "reasoning_tokens": 0,
+        "latency_s": 2.936999999999898,
+        "cost_units": 6160
+      },
+      {
+        "call_id": 10,
+        "session_id": "bench-sticky-986015a0",
+        "task_id": "5541667de04e4964b7f2fa9789a4a5eb",
+        "timestamp": 1794988088.7804732,
+        "intent": "task_changed",
+        "tier": "c0",
+        "route_class": "R0",
+        "model": "Qwen3.8-27B",
+        "provider": "tianhe",
+        "input_tokens": 136,
+        "cached_tokens": 0,
+        "output_tokens": 128,
+        "reasoning_tokens": 0,
+        "latency_s": 3.014999999999418,
+        "cost_units": 6480
+      },
+      {
+        "call_id": 11,
+        "session_id": "bench-sticky-986015a0",
+        "task_id": "5541667de04e4964b7f2fa9789a4a5eb",
+        "timestamp": 1794988092.31134,
+        "intent": "continue",
+        "tier": "c0",
+        "route_class": "R0",
+        "model": "Qwen3.8-27B",
+        "provider": "tianhe",
+        "input_tokens": 211,
+        "cached_tokens": 0,
+        "output_tokens": 68,
+        "reasoning_tokens": 0,
+        "latency_s": 2.2969999999986612,
+        "cost_units": 4830
+      },
+      {
+        "call_id": 12,
+        "session_id": "bench-sticky-986015a0",
+        "task_id": "5541667de04e4964b7f2fa9789a4a5eb",
+        "timestamp": 1794988097.6495862,
+        "intent": "redo",
+        "tier": "c2",
+        "route_class": "R2",
+        "model": "GLM-5.3-Flash",
+        "provider": "tianhe",
+        "input_tokens": 181,
+        "cached_tokens": 0,
+        "output_tokens": 128,
+        "reasoning_tokens": 128,
+        "latency_s": 4.0,
+        "cost_units": 69300
+      },
+      {
+        "call_id": 13,
+        "session_id": "bench-sticky-986015a0",
+        "task_id": "176f7f28b8b64e0eabcb2ff04c491583",
+        "timestamp": 1794988103.6420324,
+        "intent": "task_changed",
+        "tier": "c0",
+        "route_class": "R0",
+        "model": "Qwen3.8-27B",
+        "provider": "tianhe",
+        "input_tokens": 247,
+        "cached_tokens": 0,
+        "output_tokens": 128,
+        "reasoning_tokens": 0,
+        "latency_s": 4.71900000000096,
+        "cost_units": 7590
+      },
+      {
+        "call_id": 14,
+        "session_id": "bench-sticky-986015a0",
+        "task_id": "176f7f28b8b64e0eabcb2ff04c491583",
+        "timestamp": 1794988107.9544356,
+        "intent": "continue",
+        "tier": "c0",
+        "route_class": "R0",
+        "model": "Qwen3.8-27B",
+        "provider": "tianhe",
+        "input_tokens": 268,
+        "cached_tokens": 0,
+        "output_tokens": 128,
+        "reasoning_tokens": 0,
+        "latency_s": 3.0780000000013388,
+        "cost_units": 7800
+      }
+    ]
+  },
+  "comparison": {
+    "switch_delta": 0,
+    "cache_hit_delta": 0,
+    "token_delta": 289,
+    "cost_saving_pct": -13.79,
+    "latency_reduction_pct": 33.46
+  }
+}
