@@ -152,10 +152,10 @@ def run_direct(
     if effort and effort != "-":
         payload["reasoning"] = {"effort": effort}
     headers = {
-        "Authorization": "Bearer " + env["STARFIRE_API_KEY"],
+        "Authorization": "Bearer " + env["secondary_API_KEY"],
         "Content-Type": "application/json",
     }
-    url = env["STARFIRE_BASE_URL"].rstrip("/") + "/responses"
+    url = env["secondary_BASE_URL"].rstrip("/") + "/responses"
     started = time.perf_counter()
     first = None
     usage = {}

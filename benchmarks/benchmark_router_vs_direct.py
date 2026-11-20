@@ -1,7 +1,7 @@
 """Compare Squilla routing against a fixed strongest-model baseline.
 
 The baseline sends every task directly to DeepSeek-V4.1-Flash through
-starfire's OpenAI Responses API. The routed run sends the same prompt through
+secondary's OpenAI Responses API. The routed run sends the same prompt through
 Squilla's OpenAI Chat endpoint with automatic tier and reasoning selection.
 """
 
@@ -128,10 +128,10 @@ def run_direct(prompt: str, env: dict[str, str]) -> dict[str, Any]:
         "stream": True,
     }
     headers = {
-        "Authorization": "Bearer " + env["STARFIRE_API_KEY"],
+        "Authorization": "Bearer " + env["secondary_API_KEY"],
         "Content-Type": "application/json",
     }
-    url = env["STARFIRE_BASE_URL"].rstrip("/") + "/responses"
+    url = env["secondary_BASE_URL"].rstrip("/") + "/responses"
     started = time.perf_counter()
     first_content: float | None = None
     usage: dict[str, Any] = {}

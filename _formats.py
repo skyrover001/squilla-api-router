@@ -262,7 +262,7 @@ def convert_response(result: dict, inbound_fmt: str, outbound_fmt: str) -> dict:
             message = (result.get("choices") or [{}])[0].get("message", {}) or {}
             content = message.get("content")
             if not content and message.get("reasoning"):
-                # Some backends (tianhe Qwen thinking mode) only return
+                # Some OpenAI-compatible backends only return
                 # `reasoning` with content=null; surface it as the answer.
                 content = message.get("reasoning")
             content = content or ""

@@ -226,7 +226,7 @@ def test_usage_ledger_roundtrip() -> None:
             tier="c2",
             route_class="R2",
             model="glm",
-            provider="tianhe",
+            provider="primary",
             task_class="code",
             input_tokens=120,
             cached_tokens=80,

@@ -575,7 +575,7 @@ def _discover_tiers() -> dict[str, dict]:
         if context_length is not None and context_length <= 0:
             context_length = None
         tiers[tier] = {
-            "provider": os.environ.get(f"{prefix}_PROVIDER", "tianhe").lower(),
+            "provider": os.environ.get(f"{prefix}_PROVIDER", "").strip().lower(),
             "model": os.environ.get(f"{prefix}_MODEL", ""),
             "supports_image": os.environ.get(f"{prefix}_SUPPORTS_IMAGE", "0") == "1",
             "supports_video": os.environ.get(f"{prefix}_SUPPORTS_VIDEO", "0") == "1",
@@ -1642,7 +1642,7 @@ async def _call_backend(
         }
         attempts.append(cand_route)
         # Per-candidate format/path: providers may natively speak different
-        # formats (tianhe=chat, starfire=responses), so each candidate must
+        # formats (for example chat vs responses), so each candidate must
         # be converted to / sent at its own native endpoint.
         outbound_fmt = cand_backend.get("format") or inbound_fmt
         outbound_path = FORMAT_TO_PATH.get(outbound_fmt, "/chat/completions")
@@ -1665,7 +1665,7 @@ async def _call_backend(
             # endpoint layer only set body.model to the initially-selected
             # tier's model.  Without this, a fallback to another provider
             # would send the wrong model name (e.g. deepseek-flash to
-            # starfire's /responses -> 404).
+            # a different provider's /responses -> 404).
             outbound_body = dict(body)
             candidate_thinking = _promote_thinking_mode(
                 thinking_mode, cand_route
