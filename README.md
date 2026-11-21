@@ -367,6 +367,57 @@ squilla_router.log | tail -n 300
 - 已对 fallback、熔断和 Session sticky 做真实多轮验证
 - pickle/joblib 模型与生产 Python、scikit-learn、LightGBM 版本一致
 
+## 实测结果
+
+以下数据来自仓库内的真实 E2E 输出，不使用理论估算。
+
+### OpenCode 多轮工具调用 A/B
+
+同一 Agent 任务分别使用 Router 和固定最高 Tier：
+
+| 指标 | Router | 固定高 Tier | 变化 |
+|---|---:|---:|---:|
+| Agent steps | 3 | 4 | -1 |
+| Tool calls | 3 | 4 | -1 |
+| Total tokens | 28,584 | 37,364 | **-23.50%** |
+| Cost units | 299,160 | 2,434,360 | **-87.71%** |
+| Elapsed time | 25.32s | 23.65s | +7.06% |
+
+来源：
+
+```text
+benchmarks/opencode_ab_summary.json
+```
+
+该结果同时减少 tokens 和费用，但单次任务存在输出长度、工具轮次和缓存状态差异，
+不能外推为所有请求的固定收益。
+
+### 12 任务 E2E
+
+同一批任务比较 Router 和固定高 Tier：
+
+| 指标 | Router | 固定高 Tier | 变化 |
+|---|---:|---:|---:|
+| Total tokens | 14,858 | 5,605 | +165.08% |
+| Cost units | 3,251,160 | 3,888,800 | **-16.40%** |
+| Total latency | 214.97s | 202.08s | +6.38% |
+
+来源：
+
+```text
+benchmarks/e2e_p1_vs_classifier.json
+```
+
+这组结果说明：Router 的价值主要是选择更低价格或更合适的模型，并不保证 token
+数量一定减少。部分低成本模型可能输出更长，因此必须同时比较 tokens 和价格。
+
+### 结果解释
+
+- `cost_units` 使用配置中的 Tier 价格倍率和真实 usage 计算。
+- 不同 Provider 的实际价格、缓存计费、输出长度和失败重试会影响最终结果。
+- 上线前应使用自己的模型价格和真实 Agent 请求重新运行基准。
+- 对短回答、长代码、工具调用和长上下文应分别统计，不能只看单一平均值。
+
 ## 测试
 
 ```bash
