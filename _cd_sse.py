@@ -50,7 +50,7 @@ class SseTranslator:
             return ""
 
         output = ""
-        # Some backends (tianhe Qwen thinking mode) stream only `reasoning`
+        # Some OpenAI-compatible backends stream only `reasoning`
         # deltas with content=null; surface that as the visible answer too.
         content_text = delta.get("content") or delta.get("reasoning")
         if content_text:

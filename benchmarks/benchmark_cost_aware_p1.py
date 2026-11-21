@@ -100,7 +100,7 @@ def run_opensquilla_policy() -> dict[str, Any]:
         "reasoning": {"effort": "low"},
     }
     headers = {
-        "Authorization": "Bearer " + ENV["STARFIRE_API_KEY"],
+        "Authorization": "Bearer " + ENV["secondary_API_KEY"],
         "Content-Type": "application/json",
     }
     started = time.perf_counter()
@@ -108,7 +108,7 @@ def run_opensquilla_policy() -> dict[str, Any]:
     with httpx.Client(trust_env=False, timeout=240) as client:
         with client.stream(
             "POST",
-            ENV["STARFIRE_BASE_URL"].rstrip("/") + "/responses",
+            ENV["secondary_BASE_URL"].rstrip("/") + "/responses",
             headers=headers,
             json=payload,
         ) as response:
